@@ -68,8 +68,13 @@ class SupervisedSafeTrainer(TrainerBase):
         self.init_datasets()
         dist.barrier()
         print("calculating baseline ...")
-        self.init_baseline()
+        if dist.get_rank() == 0:
+            self.init_baseline()
         dist.barrier()
+        dist.broadcast(
+            self.baseline_logprobs,
+            src=0,
+        )
         self.init_engines()
         dist.barrier()
         self.init_logger()
@@ -135,7 +140,7 @@ class SupervisedSafeTrainer(TrainerBase):
         #     )
         # else:
         #     self.eval_dataloader = None
-
+        
         self.train_dataloader = DataLoader(
             train_dataset,
             collate_fn=train_dataset.get_collator(),
@@ -153,10 +158,21 @@ class SupervisedSafeTrainer(TrainerBase):
             self.baseline_logprobs = torch.load(baseline_cache_path, map_location=self.args.device)
             print("Loaded cached baseline logprobs successfully")
         else:
+            # Assert only one process is computing baseline logprobs
+            if dist.is_initialized() and dist.get_rank() != 0:
+                print("Only one process should compute baseline logprobs.")
+                dist.barrier()
+                return
             print("Computing baseline logprobs...")
 
+            baseline_dataloader = DataLoader(
+                self.train_dataloader.dataset,
+                collate_fn=self.train_dataloader.dataset.get_collator(),
+                batch_size=32,
+            )
+
             self.baseline_logprobs = torch.zeros(
-                (len(self.train_dataloader.dataset)),
+                (len(baseline_dataloader.dataset)),
                 dtype=self.model.dtype,
             )
             self.baseline_logprobs = to_device(self.baseline_logprobs, self.args.device)
@@ -172,18 +188,19 @@ class SupervisedSafeTrainer(TrainerBase):
             reference_model.eval()
             reference_model.to(self.args.device)
 
-            for batch in tqdm(self.train_dataloader, desc='Computing baseline logprobs'):
-                batch = to_device(batch, self.args.device)
-                logprobs = (
-                    self.compute_log_probs(
-                        reference_model,
-                        batch["input_ids"],
-                        batch["attention_mask"],
+            with torch.no_grad():
+                for batch in tqdm(baseline_dataloader, desc='Computing baseline logprobs'):
+                    batch = to_device(batch, self.args.device)
+                    logprobs = (
+                        self.compute_log_probs(
+                            reference_model,
+                            batch["input_ids"],
+                            batch["attention_mask"],
+                        )
+                        * batch["attention_mask"][:, 1:]
                     )
-                    * batch["attention_mask"][:, 1:]
-                )
 
-                self.baseline_logprobs[batch['index']] = logprobs.sum(dim=1)
+                    self.baseline_logprobs[batch['index']] = logprobs.sum(dim=1)
 
             # Save computed baseline logprobs
             print(f"Saving computed baseline logprobs to {baseline_cache_path}")
