@@ -59,7 +59,10 @@ class SupervisedSafetyDataset(TokenizedDataset):
             input_ids[-1] != self.tokenizer.eos_token_id
             and len(input_ids) < self.tokenizer.model_max_length
         ):
-            input_ids.append(self.tokenizer.eos_token_id)
+            input_ids = torch.cat([
+                input_ids,
+                torch.tensor([self.tokenizer.eos_token_id], dtype=input_ids.dtype, device=input_ids.device)
+            ])
         labels = input_ids.clone()
         labels[: len(self.tokenize(prompt))] = IGNORE_INDEX
         return {'input_ids': input_ids, 'labels': labels, 'safe': raw_sample['is_safe']}
