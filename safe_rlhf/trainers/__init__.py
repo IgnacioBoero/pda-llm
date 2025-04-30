@@ -15,10 +15,9 @@
 """Trainer base classes."""
 
 from safe_rlhf.trainers.base import TrainerBase
-from safe_rlhf.trainers.dual_trainer import DualTrainer
 from safe_rlhf.trainers.rl_trainer import RLTrainer
 from safe_rlhf.trainers.supervised_safe_trainer import SupervisedSafeTrainer
 from safe_rlhf.trainers.supervised_trainer import SupervisedTrainer
 
 
-__all__ = ['TrainerBase', 'RLTrainer', 'SupervisedTrainer', 'DualTrainer', 'SupervisedSafeTrainer']
+__all__ = ['TrainerBase', 'RLTrainer', 'SupervisedTrainer', 'SupervisedSafeTrainer']
