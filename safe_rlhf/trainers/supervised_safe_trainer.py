@@ -70,11 +70,17 @@ class SupervisedSafeTrainer(TrainerBase):
         print("calculating baseline ...")
         if dist.get_rank() == 0:
             self.init_baseline()
-        dist.barrier()
+        else:
+            self.baseline_logprobs = torch.zeros(
+                (len(self.train_dataloader.dataset)),
+                dtype=self.model.dtype,
+            )
+            self.baseline_logprobs = to_device(self.baseline_logprobs, self.args.device)
         dist.broadcast(
             self.baseline_logprobs,
             src=0,
         )
+
         self.init_engines()
         dist.barrier()
         self.init_logger()
@@ -168,7 +174,7 @@ class SupervisedSafeTrainer(TrainerBase):
             baseline_dataloader = DataLoader(
                 self.train_dataloader.dataset,
                 collate_fn=self.train_dataloader.dataset.get_collator(),
-                batch_size=32,
+                batch_size=4,
             )
 
             self.baseline_logprobs = torch.zeros(
