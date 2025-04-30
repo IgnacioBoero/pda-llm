@@ -68,7 +68,7 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
         input_ids: torch.LongTensor,  # size = (B, L)
         attention_mask: torch.BoolTensor,  # size = (B, L)
         labels: torch.LongTensor,  # size = (B, L)
-        safe: torch.LongTensor,  # size = (B, L)
+        safe: torch.LongTensor,  # size = (B)
         ref_log_probs: torch.Tensor,  # size = (B, L)
     ) -> dict[str, torch.Tensor]:
         """Loss function for the pdalignment algorithm.
@@ -97,7 +97,7 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
             loss_safety = (
                 self.args.resilient_coeff
                 / 2
-                * torch.clamp(-log_ratio + self.args.safety_ratio_tol, 0, None)
+                * torch.clamp(-log_ratio + self.args.safety_ratio_tol, 0, None) ** 2
             )  * safe
             loss = loss + loss_safety.sum()
 
