@@ -205,6 +205,8 @@ def load_pretrained_models(  # pylint: disable=too-many-arguments
         trust_remote_code=trust_remote_code,
         **auto_tokenizer_kwargs,
     )
+    # if tokenizer.pad_token is None:
+    #         tokenizer.pad_token = tokenizer.eos_token
     resize_tokenizer_embedding(tokenizer=tokenizer, model=model)
     return model, tokenizer
 

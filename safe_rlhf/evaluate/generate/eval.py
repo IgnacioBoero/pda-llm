@@ -30,7 +30,7 @@ from safe_rlhf.utils import to_device
 
 from peft import AutoPeftModelForCausalLM
 
-
+import numpy as np
 
 def parse_arguments() -> argparse.Namespace:
     """Parse the command-line arguments."""
@@ -72,7 +72,6 @@ def generate_answer(problems: list[str], model_name_or_path: str) -> list[str]:
         trust_remote_code=True,
     )
     answers = []
-    # print(f'Generating answers with {model_name_or_path}')
     for problem in tqdm(problems):
         prompt = PROMPT_INPUT.format(input=problem)
         input_ids = to_device(
@@ -81,12 +80,24 @@ def generate_answer(problems: list[str], model_name_or_path: str) -> list[str]:
         )
         output_ids = model.generate(
             **input_ids,
-            max_length=512,
+            max_length=tokenizer.model_max_length,
         )
         answer = tokenizer.decode(output_ids[0], skip_special_tokens=True)[len(prompt) :]
         answers.append(answer)
     return answers
 
+
+def evaluate_harmfulness(
+    user_texts: list[str],
+    assistant_texts: list[str],
+    setup: str =  "redteam-osst",
+) -> list[float]:
+    """Evaluate the harmfulness of the outputs."""
+    from HarmfulnessRewardModel import AbsoluteHarmfulnessPredictor
+
+    harmfulness_predictor = AbsoluteHarmfulnessPredictor(setup, device="cuda:0")
+    harmfulness_scores = harmfulness_predictor.predict(user_texts, assistant_texts)
+    return np.array(harmfulness_scores)
 
 
 def main() -> None:
@@ -96,26 +107,62 @@ def main() -> None:
     # get files ending in json of args.problem_path
     files = [os.path.join(args.problem_path, f) for f in os.listdir(args.problem_path) if f.endswith('.json')]
     for file in files:
+
+        # Open file with instructions
         with open(file, encoding='utf-8') as f:
             problems = json.load(f)
         print(f'Generating answers for {file}')
 
+        # Generate answers
         answer = generate_answer(problems['instructions'], args.model)
-
         print('Generating answers finished.')
-
         results = {
                 'instructions': problems['instructions'],
                 'outputs': answer,
             }
+        # # Save answers
+        # answer_out_dir = f'outputs/{args.model.split('/')[-1]}/answers/'
+        # if not os.path.exists(answer_out_dir):
+        #     os.makedirs(answer_out_dir)
+        # answer_output_file = file.split('/')[-1].split('.')[0]
+        # answer_output_file = os.path.join(answer_out_dir, f'{answer_output_file}_answers.json')
+        # with open(answer_output_file, mode='w', encoding='utf-8') as f:
+        #     json.dump(results, f, indent=4, ensure_ascii=False)
+        # print(f'Saved answers to {answer_out_dir}.')
 
-        out_dir = 'outputs/{}/'.format(args.model)
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-        output_file = file.split('/')[-1].split('.')[0]
-        output_file = os.path.join(out_dir, f'{output_file}_eval.json')
-        with open(output_file, mode='w', encoding='utf-8') as f:
-            json.dump(results, f, indent=4, ensure_ascii=False)
+
+        # Evaluate harmfulness
+        print('Evaluating harmfulness...')
+        harmfulness_scores = evaluate_harmfulness(
+            problems['instructions'],
+            answer,
+        )
+        print('Evaluating harmfulness finished.')
+        # # Save harmfulness scores
+        # scores_out_dir = f'outputs/{args.model.split("/")[-1]}/scores/'
+        # if not os.path.exists(scores_out_dir):
+        #     os.makedirs(scores_out_dir)
+        # scores_output_file = file.split('/')[-1].split('.')[0]
+        # scores_output_file = os.path.join(scores_out_dir, f'{scores_output_file}_scores.npy')
+        # np.save(scores_output_file, harmfulness_scores)
+        # print(f'Saved harmfulness scores to {scores_output_file}.')
+        
+        dict_out = {
+            'mean_harmfulness_scores': np.mean(harmfulness_scores),
+            'instructions': problems['instructions'],
+            'outputs': answer,
+            'harmfulness_scores': harmfulness_scores.tolist(),
+        }
+        # Save results
+        result_out_dir = f'outputs/{args.model.split("/")[-1]}/'
+        if not os.path.exists(result_out_dir):
+            os.makedirs(result_out_dir)
+        result_output_file = file.split('/')[-1].split('.')[0]
+        result_output_file = os.path.join(result_out_dir, f'{result_output_file}_results.json')
+        with open(result_output_file, mode='w', encoding='utf-8') as f:
+            json.dump(dict_out, f, indent=4, ensure_ascii=False)
+        print(f'Saved results to {result_out_dir}.')
+
 
 if __name__ == '__main__':
     main()

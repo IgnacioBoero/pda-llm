@@ -34,12 +34,12 @@ timestamp="$(date +%Y%m%d-%H%M%S)"
 unset HOSTFILE
 ZERO_STAGE=0
 OFFLOAD="none"
-
+SAFE_SFT=False
 # GRIDSEARCH PARAMS
-SAFETY_RATIO_TOL=4.6
-RESILIENT_COEFF=10
+SAFETY_RATIO_TOL=10
+RESILIENT_COEFF=1
 LEARNING_RATE=2e-5
-NUM_SAFETY_SAMPLES="300"
+NUM_SAFETY_SAMPLES="100"
 
 while [[ "$#" -gt 0 ]]; do
 	arg="$1"
@@ -101,6 +101,13 @@ while [[ "$#" -gt 0 ]]; do
 		--learning_rate=*)
 			LEARNING_RATE="${arg#*=}"
 			;;
+		--safe_sft)
+			SAFE_SFT="$1"
+			shift
+			;;
+		--safe_sft=*)
+			SAFE_SFT="${arg#*=}"
+			;;
 		--num_safety_samples)
 			NUM_SAFETY_SAMPLES="$1"
 			shift
@@ -115,7 +122,7 @@ while [[ "$#" -gt 0 ]]; do
 	esac
 done
 
-OUTPUT_DIR="${ROOT_DIR}/output/sft-safe-v2/${NUM_SAFETY_SAMPLES}/run-${timestamp}"
+OUTPUT_DIR="${ROOT_DIR}/output/sft-safe/${NUM_SAFETY_SAMPLES}/run-${SAFE_SFT}-${NUM_SAFETY_SAMPLES}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" &>/dev/null && pwd)"
 if [[ ! -f "${OUTPUT_DIR}/.gitignore" ]]; then
@@ -158,15 +165,15 @@ PY
 echo "deepspeed:    $(command -v deepspeed)"
 echo "--------------------------------------------"
 
-CUDA_VISIBLE_DEVICES=0 deepspeed "${DEEPSPEED_ARGS[@]}" \
+CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--module safe_rlhf.algorithms.safe_ft \
 	--train_datasets "SAFE-ALPACA/${NUM_SAFETY_SAMPLES}" \
 	--model_name_or_path "${MODEL_NAME_OR_PATH}" \
 	--cache_dir "${ROOT_DIR}/cache/sft-${NUM_SAFETY_SAMPLES}" \
-	--safe_sft False	 \
-	--max_length 512 \
+	--safe_sft "${SAFE_SFT}"	 \
+	--max_length 1024 \
 	--trust_remote_code True \
-	--epochs 5 \
+	--epochs 6 \
 	--per_device_train_batch_size 4 \
 	--per_device_eval_batch_size 4 \
 	--gradient_accumulation_steps 32 \
@@ -178,7 +185,7 @@ CUDA_VISIBLE_DEVICES=0 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--seed 42 \
 	--output_dir "${OUTPUT_DIR}" \
 	--log_type wandb \
-	--log_project SAFE-SFT-v2 \
+	--log_project SAFE-SFT-v3 \
 	--zero_stage "${ZERO_STAGE}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \
