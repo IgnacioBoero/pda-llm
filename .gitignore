@@ -5,3 +5,4 @@ __pycache__/*
 data/*
 *.ipynb
 safe_rlhf.egg-info/*
+safe_rlhf/evaluate/generate/outputs/*
