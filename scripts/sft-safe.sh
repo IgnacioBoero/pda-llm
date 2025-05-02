@@ -38,9 +38,9 @@ SAFE_SFT=False
 # GRIDSEARCH PARAMS
 SAFETY_RATIO_TOL=10
 RESILIENT_COEFF=1
-LEARNING_RATE=2e-5
+LEARNING_RATE=1e-4
 NUM_SAFETY_SAMPLES="100"
-
+EPOCHS=6
 while [[ "$#" -gt 0 ]]; do
 	arg="$1"
 	shift
@@ -100,6 +100,13 @@ while [[ "$#" -gt 0 ]]; do
 			;;
 		--learning_rate=*)
 			LEARNING_RATE="${arg#*=}"
+			;;
+		--epochs)
+			EPOCHS="$1"
+			shift
+			;;
+		--epochs=*)
+			EPOCHS="${arg#*=}"
 			;;
 		--safe_sft)
 			SAFE_SFT="$1"
@@ -173,7 +180,7 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--safe_sft "${SAFE_SFT}"	 \
 	--max_length 1024 \
 	--trust_remote_code True \
-	--epochs 6 \
+	--epochs "${EPOCHS}"  \
 	--per_device_train_batch_size 4 \
 	--per_device_eval_batch_size 4 \
 	--gradient_accumulation_steps 32 \
