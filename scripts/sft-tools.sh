@@ -189,9 +189,9 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \
 	--resilient_coeff "${RESILIENT_COEFF}" \
-	--lora_r "4" \
+	--lora_r "16" \
 	--lora_alpha "32" \
 	--lora_dropout "0.05" \
 	--bf16 False \
 	--fp16 True \
-	--tf32 True
+	--tf32 False
