@@ -61,7 +61,12 @@ from safe_rlhf.datasets.supervised_safety import (
     SupervisedSafetyDataset,
     SupervisedSafetySample,
 )
-
+from safe_rlhf.datasets.supervised_tools import (
+    SupervisedToolsBatch,
+    SupervisedToolsCollator,
+    SupervisedToolsDataset,
+    SupervisedToolsSample,
+)
 
 __all__ = [
     'DummyDataset',
@@ -90,6 +95,10 @@ __all__ = [
     'SupervisedSafetyCollator',
     'SupervisedSafetySample',
     'SupervisedSafetyBatch',
+    'SupervisedToolsDataset',
+    'SupervisedToolsCollator',
+    'SupervisedToolsSample',
+    'SupervisedToolsBatch',
     *raw.__all__,
 ]
 

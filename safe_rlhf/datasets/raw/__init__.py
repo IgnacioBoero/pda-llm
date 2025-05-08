@@ -41,6 +41,8 @@ from safe_rlhf.datasets.raw.safe_rlhf import (
     SafeRLHFTrainDataset,
 )
 
+from safe_rlhf.datasets.raw.tools import ToolsDataset    
+
 
 __all__ = [
     'AlpacaDataset',
@@ -62,4 +64,5 @@ __all__ = [
     'SafeAlpaca1000Dataset',
     'SafeAlpaca1500Dataset',
     'SafeAlpaca2000Dataset',
+    'ToolsDataset',
 ]

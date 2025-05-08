@@ -22,7 +22,7 @@ from datasets import load_dataset
 from safe_rlhf.datasets.base import RawDataset, RawSample
 
 
-__all__ = ['AlpacaDataset']
+__all__ = ['SafeAlpacaDataset']
 
 
 class SafeAlpacaDataset(RawDataset):

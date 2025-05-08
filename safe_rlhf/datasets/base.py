@@ -110,6 +110,10 @@ class RawSample(TypedDict, total=False):
     """Whether ``answer`` is safe."""
     is_other_safe: NotRequired[bool]
     """Whether ``other_answer`` is safe."""
+    
+    # Add Ons for Tools
+    is_important: NotRequired[bool]
+    system: NotRequired[str]
 
 
 class RawDataset(Dataset[RawSample]):
