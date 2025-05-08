@@ -65,7 +65,9 @@ class SupervisedSafetyDataset(TokenizedDataset):
             ])
         labels = input_ids.clone()
         labels[: len(self.tokenize(prompt))] = IGNORE_INDEX
-        return {'input_ids': input_ids, 'labels': labels, 'safe': raw_sample['is_safe']}
+        response_mask = torch.zeros_like(labels, dtype=torch.bool)
+        response_mask[len(self.tokenize(prompt)):] = True
+        return {'input_ids': input_ids, 'labels': labels, 'safe': raw_sample['is_safe'], 'response_mask': response_mask}
 
     def get_collator(self) -> Callable[[list[dict[str, torch.Tensor]]], dict[str, torch.Tensor]]:
         return SupervisedSafetyCollator(self.tokenizer.pad_token_id)
@@ -99,11 +101,12 @@ class SupervisedSafetyCollator(CollatorBase):
         )
         index_list = [s['index'] for s in samples]
         indexes = torch.tensor(index_list, dtype=torch.long)
-
+        response_mask = right_padding([s['response_mask'] for s in samples], padding_value=1)
         return {
             'input_ids': input_ids,  # size = (B, L)
             'labels': labels,  # size = (B, L)
             'attention_mask': attention_mask,  # size = (B, L)
             'safe': safe,  # size = (B,)
             'index': indexes,
+            'response_mask': response_mask,  # size = (B, L)
         }

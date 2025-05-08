@@ -29,7 +29,7 @@ export LOGLEVEL="${LOGLEVEL:-WARNING}"
 export WANDB_MODE=online
 export WANDB_ENTITY="alelab"
 
-MODEL_NAME_OR_PATH="meta-llama/Llama-3.1-8B"
+MODEL_NAME_OR_PATH="meta-llama/Llama-3.1-8B-Instruct"
 timestamp="$(date +%Y%m%d-%H%M%S)"
 unset HOSTFILE
 ZERO_STAGE=0

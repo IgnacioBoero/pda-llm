@@ -22,7 +22,7 @@ import torch.distributed as dist
 from transformers import SchedulerType
 from transformers.utils import is_torch_bf16_gpu_available, is_torch_tf32_available
 
-from safe_rlhf.algorithms.safe_ft.trainer import SafeSFTTrainer
+from safe_rlhf.algorithms.tools_ft.trainer import ToolsSFTTrainer
 from safe_rlhf.configs import get_deepspeed_eval_config, get_deepspeed_train_config
 from safe_rlhf.datasets import parse_dataset
 from safe_rlhf.logger import set_logger_level
@@ -362,7 +362,7 @@ def main() -> None:
         bf16=args.bf16,
     )
 
-    trainer = SafeSFTTrainer(args, ds_train_config, ds_eval_config)
+    trainer = ToolsSFTTrainer(args, ds_train_config, ds_eval_config)
     trainer.train()
     trainer.save()
 
