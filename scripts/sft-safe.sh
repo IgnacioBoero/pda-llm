@@ -181,9 +181,9 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--max_length 1024 \
 	--trust_remote_code True \
 	--epochs "${EPOCHS}"  \
-	--per_device_train_batch_size 4 \
-	--per_device_eval_batch_size 4 \
-	--gradient_accumulation_steps 32 \
+	--per_device_train_batch_size 1 \
+	--per_device_eval_batch_size 1 \
+	--gradient_accumulation_steps 128 \
 	--gradient_checkpointing \
 	--learning_rate  "${LEARNING_RATE}" \
 	--lr_scheduler_type cosine \

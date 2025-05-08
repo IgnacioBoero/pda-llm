@@ -164,7 +164,7 @@ PY
 echo "deepspeed:    $(command -v deepspeed)"
 echo "--------------------------------------------"
 
-CUDA_VISIBLE_DEVICES=1 deepspeed "${DEEPSPEED_ARGS[@]}" \
+CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--module safe_rlhf.algorithms.tools_ft \
 	--train_datasets "tools" \
 	--model_name_or_path "${MODEL_NAME_OR_PATH}" \
@@ -173,9 +173,9 @@ CUDA_VISIBLE_DEVICES=1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--max_length 4096 \
 	--trust_remote_code True \
 	--epochs "${EPOCHS}"  \
-	--per_device_train_batch_size 4 \
-	--per_device_eval_batch_size 4 \
-	--gradient_accumulation_steps 12 \
+	--per_device_train_batch_size 1 \
+	--per_device_eval_batch_size 1 \
+	--gradient_accumulation_steps 48 \
 	--gradient_checkpointing \
 	--learning_rate  "${LEARNING_RATE}" \
 	--lr_scheduler_type cosine \
@@ -189,7 +189,7 @@ CUDA_VISIBLE_DEVICES=1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \
 	--resilient_coeff "${RESILIENT_COEFF}" \
-	--lora_r "16" \
+	--lora_r "4" \
 	--lora_alpha "32" \
 	--lora_dropout "0.05" \
 	--bf16 False \

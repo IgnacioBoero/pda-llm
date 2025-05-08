@@ -70,6 +70,7 @@ class ToolsSFTTrainer(SupervisedToolsTrainer):
         labels: torch.LongTensor,  # size = (B, L)
         important: torch.LongTensor,  # size = (B)
         ref_log_probs: torch.Tensor,  # size = (B, L)
+        response_mask: torch.BoolTensor,  # size = (B, L)
     ) -> dict[str, torch.Tensor]:
         """Loss function for the pdalignment algorithm.
 
@@ -92,7 +93,7 @@ class ToolsSFTTrainer(SupervisedToolsTrainer):
             sequence_log_probs = gather_log_probabilities(
                         logs.logits[:, :-1], input_ids[:, 1:]
                     )
-            log_probs = (sequence_log_probs * attention_mask[:, 1:]).sum(dim=1)
+            log_probs = (sequence_log_probs * attention_mask[:, 1:]* response_mask[:,1:]).sum(dim=1)
             log_ratio = log_probs - ref_log_probs
             loss_safety = (
                 self.args.resilient_coeff
@@ -116,6 +117,7 @@ class ToolsSFTTrainer(SupervisedToolsTrainer):
         labels: torch.LongTensor,  # size = (B, L)
         important: torch.LongTensor,  # size = (B, L)
         index: torch.LongTensor,  # size = (B, L)
+        response_mask: torch.BoolTensor,  # size = (B, L)
     ) -> dict[str, Any]:
         """Perform a single training step.
 
@@ -136,8 +138,9 @@ class ToolsSFTTrainer(SupervisedToolsTrainer):
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
-            safe=important,
+            important=important,
             ref_log_probs=batch_ref_sequence_log_probs,
+            response_mask=response_mask,
         )
         loss = loss_dict['loss']
         self.model.backward(loss)

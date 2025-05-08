@@ -28,6 +28,7 @@ from transformers import (
     AutoTokenizer,
     PreTrainedModel,
     PreTrainedTokenizerBase,
+    BitsAndBytesConfig
 )
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 
@@ -186,13 +187,21 @@ def load_pretrained_models(  # pylint: disable=too-many-arguments
         auto_model_kwargs = {}
     if auto_tokenizer_kwargs is None:
         auto_tokenizer_kwargs = {}
-
+        
+        
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,                  # tell HF to use 4-bit weights
+        bnb_4bit_compute_dtype=torch.bfloat16,  # bf16 mat-mul gives the best speed/accuracy trade-off
+        bnb_4bit_quant_type="nf4",          # Normal-Float-4 ⇒ best accuracy among 4-bit schemes
+        bnb_4bit_use_double_quant=True      # second-level quantization → ~0.5 GB extra savings
+    )
     model = auto_model_type.from_pretrained(
         model_name_or_path,
         *auto_model_args,
         cache_dir=cache_dir,
         device_map=device_map,
         torch_dtype=dtype,
+        quantization_config=bnb_config,
         trust_remote_code=trust_remote_code,
         **auto_model_kwargs,
     )

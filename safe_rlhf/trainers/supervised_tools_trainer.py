@@ -203,7 +203,7 @@ class SupervisedToolsTrainer(TrainerBase):
                             batch["input_ids"],
                             batch["attention_mask"],
                         )
-                        * batch["attention_mask"][:, 1:]
+                        * batch["attention_mask"][:, 1:] * batch["response_mask"][:, 1:] 
                     )
 
                     self.baseline_logprobs[batch['index']] = logprobs.sum(dim=1)
@@ -352,7 +352,7 @@ class SupervisedToolsTrainer(TrainerBase):
                         self.model.module,
                         input_ids=input_ids,
                         attention_mask=attention_mask,
-                    ) * attention_mask[:, 1:]
+                    ) * attention_mask[:, 1:] * batch["response_mask"][:, 1:] 
 
                     log_ratio = sequence_log_probs.sum(dim=1) - ref_log_probs
                     safe_log_ratios.append(log_ratio)

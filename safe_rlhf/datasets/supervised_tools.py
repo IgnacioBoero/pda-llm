@@ -53,18 +53,23 @@ class SupervisedToolsDataset(TokenizedDataset):
         ]
         for m in raw_sample['dialogue']:
             messages.append({'role': m['from'], 'content': m['value']})
-        input_ids = self.tokenizer.apply_chat_template(messages, add_generation_prompt=False, return_tensors="pt")[0]
-        if (
-            input_ids[-1] != self.tokenizer.eos_token_id
-            and len(input_ids) < self.tokenizer.model_max_length
-        ):
-            input_ids = torch.cat([
-                input_ids,
-                torch.tensor([self.tokenizer.eos_token_id], dtype=input_ids.dtype, device=input_ids.device)
-            ])
+        encoded = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            return_tensors="pt",
+            return_dict=True,
+            return_attention_mask=True,
+            return_assistant_tokens_mask=True,
+            truncation=True,
+            max_length=self.tokenizer.model_max_length,   
+        )
+        input_ids = encoded["input_ids"][0]
         labels = input_ids.clone()
-        labels[: len(self.tokenizer.apply_chat_template([{'role': 'system', 'content': raw_sample['system']}]))] = IGNORE_INDEX
-        return {'input_ids': input_ids, 'labels': labels, 'important': raw_sample['is_important']}
+    
+        response_mask = encoded["assistant_masks"][0]
+        labels[response_mask == 0] = IGNORE_INDEX
+        
+        return {'input_ids': input_ids, 'labels': labels, 'important': raw_sample['is_important'], 'response_mask': response_mask}
 
     def get_collator(self) -> Callable[[list[dict[str, torch.Tensor]]], dict[str, torch.Tensor]]:
         return SupervisedToolsCollator(self.tokenizer.pad_token_id)
@@ -98,6 +103,7 @@ class SupervisedToolsCollator(CollatorBase):
         )
         index_list = [s['index'] for s in samples]
         indexes = torch.tensor(index_list, dtype=torch.long)
+        response_mask = right_padding([s['response_mask'] for s in samples], padding_value=1)
 
         return {
             'input_ids': input_ids,  # size = (B, L)
@@ -105,4 +111,5 @@ class SupervisedToolsCollator(CollatorBase):
             'attention_mask': attention_mask,  # size = (B, L)
             'important': important,  # size = (B,)
             'index': indexes,
+            'response_mask': response_mask
         }
