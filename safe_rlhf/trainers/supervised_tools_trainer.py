@@ -341,7 +341,7 @@ class SupervisedToolsTrainer(TrainerBase):
         with torch.no_grad():
             for batch in self.eval_dataloader:
 
-                is_important = batch['is_important']
+                is_important = batch['important']
                 if is_important:
                     batch = to_device(batch, self.args.device)
                     index = batch['index']

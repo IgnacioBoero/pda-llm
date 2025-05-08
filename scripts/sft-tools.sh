@@ -164,7 +164,7 @@ PY
 echo "deepspeed:    $(command -v deepspeed)"
 echo "--------------------------------------------"
 
-CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
+CUDA_VISIBLE_DEVICES=1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--module safe_rlhf.algorithms.tools_ft \
 	--train_datasets "tools" \
 	--model_name_or_path "${MODEL_NAME_OR_PATH}" \
