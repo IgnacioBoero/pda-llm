@@ -236,9 +236,9 @@ def parse_arguments() -> argparse.Namespace:
     )
     evaluation_parser.add_argument(
         '--need_eval',
-        default=False,
+        type=str2bool,
+        default=True,
         help='Whether to evaluate the model during training.',
-        action='store_true',
     )
     evaluation_parser.add_argument(
         '--eval_split_ratio',
@@ -335,8 +335,9 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> None:
     """Main training routine."""
     args = parse_arguments()
+    from datetime import timedelta
 
-    deepspeed.init_distributed()
+    deepspeed.init_distributed(timeout=timedelta(hours=2))
 
     args.global_rank = dist.get_rank()
     args.device = torch.device('cuda', args.local_rank)

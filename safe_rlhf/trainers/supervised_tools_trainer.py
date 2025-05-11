@@ -333,13 +333,13 @@ class SupervisedToolsTrainer(TrainerBase):
         safe_log_ratios = []
         table = wandb.Table(columns=["data_index"] + ["value"])
         self.model.eval()
-        self.eval_dataloader = DataLoader(
+        eval_dataloader = DataLoader(
                     self.train_dataloader.dataset,
                     collate_fn=self.train_dataloader.dataset.get_collator(),
                     batch_size=1,
                 )
         with torch.no_grad():
-            for batch in self.eval_dataloader:
+            for batch in eval_dataloader:
 
                 is_important = batch['important']
                 if is_important:
@@ -356,18 +356,15 @@ class SupervisedToolsTrainer(TrainerBase):
 
                     log_ratio = sequence_log_probs.sum(dim=1) - ref_log_probs
                     safe_log_ratios.append(log_ratio)
-                    table.add_data(index, log_ratio)
         safe_log_ratios = torch.cat(safe_log_ratios, dim=0)
-        safe_log_ratios = safe_log_ratios.cpu().numpy()
         # log all log ratios values as a table
-            
+
 
         return {
-            'eval/mean_important_log_ratio': safe_log_ratios.mean(),
-            'eval/min_log_ratio': safe_log_ratios.min(),
-            'eval/max_log_ratio': safe_log_ratios.max(),
-            'eval/hist_log_ratio': wandb.Histogram(safe_log_ratios),
-            'eval/table': table,    
+            'eval/mean_important_log_ratio': safe_log_ratios.mean().item(),
+            'eval/min_log_ratio': safe_log_ratios.min().item(),
+            'eval/max_log_ratio': safe_log_ratios.max().item(),
+            'eval/hist_log_ratio': wandb.Histogram(safe_log_ratios.cpu().to(torch.float16)),
         }
 
     def set_train(self, mode: bool = True) -> None:

@@ -133,7 +133,6 @@ class ToolsSFTTrainer(SupervisedToolsTrainer):
             dict[str, Any]: training loss, reward, learning rate
         """
         batch_ref_sequence_log_probs = self.baseline_logprobs[index]
-
         loss_dict = self.loss(
             input_ids=input_ids,
             attention_mask=attention_mask,

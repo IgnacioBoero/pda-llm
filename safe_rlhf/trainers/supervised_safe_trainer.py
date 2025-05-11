@@ -359,15 +359,14 @@ class SupervisedSafeTrainer(TrainerBase):
                     safe_log_ratios.append(log_ratio)
                     table.add_data(index, log_ratio)
         safe_log_ratios = torch.cat(safe_log_ratios, dim=0)
-        safe_log_ratios = safe_log_ratios.cpu().numpy()
         # log all log ratios values as a table
             
 
         return {
-            'eval/mean_safe_log_ratio': safe_log_ratios.mean(),
-            'eval/min_log_ratio': safe_log_ratios.min(),
-            'eval/max_log_ratio': safe_log_ratios.max(),
-            'eval/hist_log_ratio': wandb.Histogram(safe_log_ratios),
+            'eval/mean_safe_log_ratio': safe_log_ratios.mean().item(),
+            'eval/min_log_ratio': safe_log_ratios.min().item(),
+            'eval/max_log_ratio': safe_log_ratios.max().item(),
+            'eval/hist_log_ratio': wandb.Histogram(safe_log_ratios.cpu().to(torch.float16)),
             'eval/table': table,    
         }
 

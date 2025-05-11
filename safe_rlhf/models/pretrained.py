@@ -156,6 +156,7 @@ def load_pretrained_models(  # pylint: disable=too-many-arguments
     auto_device_mapping: bool = False,
     dtype: torch.dtype | str | None = 'auto',
     *,
+    bnb_boolean: bool = True,
     cache_dir: str | os.PathLike | None = None,
     trust_remote_code: bool = False,
     auto_model_type: type[AutoPeftModelForCausalLM | AutoModelForCausalLM | AutoModelForScore] = AutoPeftModelForCausalLM,
@@ -188,23 +189,33 @@ def load_pretrained_models(  # pylint: disable=too-many-arguments
     if auto_tokenizer_kwargs is None:
         auto_tokenizer_kwargs = {}
         
-        
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,                  # tell HF to use 4-bit weights
-        bnb_4bit_compute_dtype=torch.bfloat16,  # bf16 mat-mul gives the best speed/accuracy trade-off
-        bnb_4bit_quant_type="nf4",          # Normal-Float-4 ⇒ best accuracy among 4-bit schemes
-        bnb_4bit_use_double_quant=True      # second-level quantization → ~0.5 GB extra savings
-    )
-    model = auto_model_type.from_pretrained(
-        model_name_or_path,
-        *auto_model_args,
-        cache_dir=cache_dir,
-        device_map=device_map,
-        torch_dtype=dtype,
-        quantization_config=bnb_config,
-        trust_remote_code=trust_remote_code,
-        **auto_model_kwargs,
-    )
+    if bnb_boolean:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,                  # tell HF to use 4-bit weights
+            bnb_4bit_compute_dtype=torch.bfloat16,  # bf16 mat-mul gives the best speed/accuracy trade-off
+            bnb_4bit_quant_type="nf4",          # Normal-Float-4 ⇒ best accuracy among 4-bit schemes
+            bnb_4bit_use_double_quant=True      # second-level quantization → ~0.5 GB extra savings
+        )
+        model = auto_model_type.from_pretrained(
+            model_name_or_path,
+            *auto_model_args,
+            cache_dir=cache_dir,
+            device_map=device_map,
+            torch_dtype=dtype,
+            quantization_config=bnb_config,
+            trust_remote_code=trust_remote_code,
+            **auto_model_kwargs,
+        )
+    else:
+        model = auto_model_type.from_pretrained(
+            model_name_or_path,
+            *auto_model_args,
+            cache_dir=cache_dir,
+            device_map=device_map,
+            torch_dtype=dtype,
+            trust_remote_code=trust_remote_code,
+            **auto_model_kwargs,
+        )
     tokenizer = AutoTokenizer.from_pretrained(
         model_name_or_path,
         *auto_tokenizer_args,

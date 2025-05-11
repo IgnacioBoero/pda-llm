@@ -40,6 +40,8 @@ SAFETY_RATIO_TOL=10
 RESILIENT_COEFF=1
 LEARNING_RATE=1e-4
 EPOCHS=3
+LORA_R=4
+MAX_LENGTH=4096
 while [[ "$#" -gt 0 ]]; do
 	arg="$1"
 	shift
@@ -107,6 +109,20 @@ while [[ "$#" -gt 0 ]]; do
 		--epochs=*)
 			EPOCHS="${arg#*=}"
 			;;
+		--lora_r)
+			LORA_R="$1"
+			shift
+			;;
+		--lora_r=*)
+			LORA_R="${arg#*=}"
+			;;
+		--max_length)
+			MAX_LENGTH="$1"
+			shift
+			;;
+		--max_length=*)
+			MAX_LENGTH="${arg#*=}"
+			;;
 		--important_sft)
 			IMPORTANT_SFT="$1"
 			shift
@@ -121,7 +137,7 @@ while [[ "$#" -gt 0 ]]; do
 	esac
 done
 
-OUTPUT_DIR="${ROOT_DIR}/output/sft-tools/run-${IMPORTANT_SFT}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
+OUTPUT_DIR="${ROOT_DIR}/output/sft-tools/run-${IMPORTANT_SFT}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}-${LORA_R}-${MAX_LENGTH}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" &>/dev/null && pwd)"
 if [[ ! -f "${OUTPUT_DIR}/.gitignore" ]]; then
@@ -170,7 +186,7 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--model_name_or_path "${MODEL_NAME_OR_PATH}" \
 	--cache_dir "${ROOT_DIR}/cache/sft-tools" \
 	--important_sft "${IMPORTANT_SFT}"	 \
-	--max_length 4096 \
+	--max_length "${MAX_LENGTH}" \
 	--trust_remote_code True \
 	--epochs "${EPOCHS}"  \
 	--per_device_train_batch_size 1 \
@@ -189,9 +205,11 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \
 	--resilient_coeff "${RESILIENT_COEFF}" \
-	--lora_r "16" \
+	--lora_r "${LORA_R}" \
 	--lora_alpha "32" \
 	--lora_dropout "0.05" \
-	--bf16 False \
-	--fp16 True \
+	--gradient_checkpointing \
+	--recompute_baseline \
+	--bf16 True \
+	--fp16 False \
 	--tf32 False

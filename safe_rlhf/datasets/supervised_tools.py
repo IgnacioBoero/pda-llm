@@ -45,6 +45,44 @@ class SupervisedToolsBatch(TypedDict, total=True):
     attention_mask: torch.BoolTensor  # size = (B, L)
 
 
+def build_assistant_mask(input_ids,
+                         bos_ass=(128006, 78191, 128007),
+                         eot=128009):
+    """
+    Build a 0/1 mask that marks assistant-message content (plus the EOT)
+    in a Llama-3.1 token sequence whose chat template lacks {% generation %}.
+
+    Parameters
+    ----------
+    input_ids : list[int]              flat token sequence
+    bos_ass   : tuple[int,int,int]     tokens that start an assistant header
+    eot       : int                    token that ends a turn
+
+    Returns
+    -------
+    list[int] – mask of equal length (1 = assistant token, 0 = other)
+    """
+    ids  = list(input_ids)           # make sure we can slice
+    mask = [0] * len(ids)
+    i, b = 0, len(bos_ass)
+
+    while i <= len(ids) - b:
+        # Detect the assistant-header triple
+        if tuple(ids[i:i+b]) == bos_ass:
+            start = i + b
+            try:                     # look for the next end-of-turn
+                end = ids.index(eot, start)
+                last = end + 1       # include the eot itself
+            except ValueError:       # truncated sequence
+                last = len(ids)
+
+            for j in range(start, last):
+                mask[j] = 1
+            i = last                 # resume scanning after this span
+        else:
+            i += 1
+
+    return torch.tensor(mask)
 class SupervisedToolsDataset(TokenizedDataset):
     def preprocess(self, raw_sample: RawSample) -> SupervisedToolsSample:
 
@@ -53,20 +91,16 @@ class SupervisedToolsDataset(TokenizedDataset):
         ]
         for m in raw_sample['dialogue']:
             messages.append({'role': m['from'], 'content': m['value']})
-        encoded = self.tokenizer.apply_chat_template(
+        input_ids = self.tokenizer.apply_chat_template(
             messages,
             tokenize=True,
             return_tensors="pt",
-            return_dict=True,
-            return_attention_mask=True,
-            return_assistant_tokens_mask=True,
             truncation=True,
             max_length=self.tokenizer.model_max_length,   
-        )
-        input_ids = encoded["input_ids"][0]
+        )[0]
         labels = input_ids.clone()
     
-        response_mask = encoded["assistant_masks"][0]
+        response_mask = build_assistant_mask(input_ids)
         labels[response_mask == 0] = IGNORE_INDEX
         
         return {'input_ids': input_ids, 'labels': labels, 'important': raw_sample['is_important'], 'response_mask': response_mask}

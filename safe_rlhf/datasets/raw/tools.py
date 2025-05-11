@@ -27,7 +27,7 @@ __all__ = ['ToolsDataset']
 
 class ToolsDataset(RawDataset):
     NAME: str = 'tools'
-    PATH: str = 'iboero16/ToolACE-modified'
+    PATH: str = 'iboero16/TOOLS-MT'
     SPLIT: str = 'train'
     ALIASES: tuple[str, ...] = ('tools-ACETOOLS',)
 
