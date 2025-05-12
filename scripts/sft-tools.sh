@@ -36,12 +36,13 @@ ZERO_STAGE=0
 OFFLOAD="none"
 IMPORTANT_SFT=False
 # GRIDSEARCH PARAMS
-SAFETY_RATIO_TOL=10
+SAFETY_RATIO_TOL=180
 RESILIENT_COEFF=1
 LEARNING_RATE=1e-4
 EPOCHS=3
-LORA_R=4
+LORA_R=16
 MAX_LENGTH=4096
+DATASET="tools"
 while [[ "$#" -gt 0 ]]; do
 	arg="$1"
 	shift
@@ -123,6 +124,13 @@ while [[ "$#" -gt 0 ]]; do
 		--max_length=*)
 			MAX_LENGTH="${arg#*=}"
 			;;
+		--dataset)
+			DATASET="$1"
+			shift
+			;;
+		--dataset=*)
+			DATASET="${arg#*=}"
+			;;
 		--important_sft)
 			IMPORTANT_SFT="$1"
 			shift
@@ -137,7 +145,7 @@ while [[ "$#" -gt 0 ]]; do
 	esac
 done
 
-OUTPUT_DIR="${ROOT_DIR}/output/sft-tools/run-${IMPORTANT_SFT}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}-${LORA_R}-${MAX_LENGTH}"
+OUTPUT_DIR="${ROOT_DIR}/output/sft-tools/run-${DATASET}-${IMPORTANT_SFT}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" &>/dev/null && pwd)"
 if [[ ! -f "${OUTPUT_DIR}/.gitignore" ]]; then
@@ -182,7 +190,7 @@ echo "--------------------------------------------"
 
 CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--module safe_rlhf.algorithms.tools_ft \
-	--train_datasets "tools" \
+	--train_datasets "${DATASET}" \
 	--model_name_or_path "${MODEL_NAME_OR_PATH}" \
 	--cache_dir "${ROOT_DIR}/cache/sft-tools" \
 	--important_sft "${IMPORTANT_SFT}"	 \
@@ -200,7 +208,7 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--seed 42 \
 	--output_dir "${OUTPUT_DIR}" \
 	--log_type wandb \
-	--log_project TOOLS-SFT \
+	--log_project TOOLS-SFT-v2 \
 	--zero_stage "${ZERO_STAGE}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \

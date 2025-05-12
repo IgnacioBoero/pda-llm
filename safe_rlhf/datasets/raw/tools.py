@@ -22,7 +22,7 @@ from datasets import load_dataset
 from safe_rlhf.datasets.base import RawDataset, RawSample
 
 
-__all__ = ['ToolsDataset']
+__all__ = ['ToolsDataset', 'ToolsDatasetOriginal']
 
 
 class ToolsDataset(RawDataset):
@@ -46,3 +46,23 @@ class ToolsDataset(RawDataset):
         return len(self.data)
 
 
+
+class ToolsDatasetOriginal(RawDataset):
+    NAME: str = 'tools-original'
+    PATH: str = 'Team-ACE/ToolACE'
+    SPLIT: str = 'train'
+    ALIASES: tuple[str, ...] = ('tools-ACETOOLS-original',)
+
+    def __init__(self, path: str | None = None) -> None:
+
+        self.data = load_dataset(path or self.PATH, split=self.SPLIT)
+
+    def __getitem__(self, index: int) -> RawSample:
+        data = self.data[index]
+        system = data['system']
+        dialogue = data['conversations']
+        is_important = False
+        return RawSample(system=system, dialogue=dialogue, is_important=is_important)
+
+    def __len__(self) -> int:
+        return len(self.data)
