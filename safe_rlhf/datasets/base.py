@@ -379,30 +379,84 @@ class TokenizedDataset(Dataset[Dict[str, torch.Tensor]]):
         self.data = self.data[:size]
         self.rawdata = self.rawdata[:size]
 
+    # def split_train_test(
+    #     self,
+    #     split_ratio: float = 0.2,
+    #     shuffle: bool = True,
+    #     seed: int | None = None,
+    # ) -> tuple[Dataset[dict[str, torch.Tensor]], Dataset[dict[str, torch.Tensor]]]:
+    #     """Split the dataset into train dataset and test dataset by split ratio."""
+    #     if seed is None:
+    #         seed = self.seed
+
+    #     num_samples = len(self)
+    #     indices = list(range(num_samples))
+    #     num_test_samples = round(num_samples * split_ratio)
+    #     if shuffle:
+    #         rng = np.random.default_rng(seed)
+    #         rng.shuffle(indices)
+    #     memo = {id(attr): attr for attr in self.__dict__.values()}
+    #     train_dataset = copy.deepcopy(self, memo=memo.copy())
+    #     test_dataset = copy.deepcopy(self, memo=memo.copy())
+    #     train_dataset.data = [self.data[i] for i in indices[:-num_test_samples]]
+    #     train_dataset.rawdata = [self.rawdata[i] for i in indices[:-num_test_samples]]
+    #     test_dataset.data = [self.data[i] for i in indices[-num_test_samples:]]
+    #     test_dataset.rawdata = [self.rawdata[i] for i in indices[-num_test_samples:]]
+
+    #     return train_dataset, test_dataset
     def split_train_test(
         self,
         split_ratio: float = 0.2,
         shuffle: bool = True,
         seed: int | None = None,
+        stratify_key: str | None = None,
     ) -> tuple[Dataset[dict[str, torch.Tensor]], Dataset[dict[str, torch.Tensor]]]:
-        """Split the dataset into train dataset and test dataset by split ratio."""
+        """Split the dataset into train/test sets.
+        If *stratify_key* is provided (default ``"important"``) each unique value of
+        that key is split with the same *split_ratio*, preserving class balance.
+        """
         if seed is None:
             seed = self.seed
 
-        num_samples = len(self)
-        indices = list(range(num_samples))
-        num_test_samples = round(num_samples * split_ratio)
+        rng = np.random.default_rng(seed) if shuffle else None
+
+        # ---------- build stratified index lists ----------
+        if stratify_key is not None and all(stratify_key in s for s in self.data):
+            strata = {}
+            for idx, sample in enumerate(self.data):
+                val = sample[stratify_key]
+                if isinstance(val, torch.Tensor):  # convert 0-d tensors to scalars
+                    val = val.item()
+                strata.setdefault(val, []).append(idx)
+
+            train_indices, test_indices = [], []
+            for idxs in strata.values():
+                if shuffle:
+                    rng.shuffle(idxs)
+                n_test = round(len(idxs) * split_ratio)
+                test_indices.extend(idxs[:n_test])
+                train_indices.extend(idxs[n_test:])
+        else:
+            # fallback to original un-stratified behaviour
+            num_samples = len(self)
+            indices = list(range(num_samples))
+            if shuffle:
+                rng.shuffle(indices)
+            n_test = round(num_samples * split_ratio)
+            train_indices, test_indices = indices[:-n_test], indices[-n_test:]
+
+        # optional final shuffle so order isn’t grouped by stratum
         if shuffle:
-            rng = np.random.default_rng(seed)
-            rng.shuffle(indices)
+            rng.shuffle(train_indices)
+            rng.shuffle(test_indices)
 
         memo = {id(attr): attr for attr in self.__dict__.values()}
         train_dataset = copy.deepcopy(self, memo=memo.copy())
         test_dataset = copy.deepcopy(self, memo=memo.copy())
-        train_dataset.data = [self.data[i] for i in indices[:-num_test_samples]]
-        train_dataset.rawdata = [self.rawdata[i] for i in indices[:-num_test_samples]]
-        test_dataset.data = [self.data[i] for i in indices[-num_test_samples:]]
-        test_dataset.rawdata = [self.rawdata[i] for i in indices[-num_test_samples:]]
+        train_dataset.data = [self.data[i] for i in train_indices]
+        train_dataset.rawdata = [self.rawdata[i] for i in train_indices]
+        test_dataset.data = [self.data[i] for i in test_indices]
+        test_dataset.rawdata = [self.rawdata[i] for i in test_indices]
 
         return train_dataset, test_dataset
 

@@ -35,6 +35,10 @@ from transformers import PreTrainedTokenizerBase
 from transformers.modeling_outputs import ModelOutput
 from transformers.tokenization_utils import BatchEncoding, PaddingStrategy, TruncationStrategy
 
+from typing import Tuple
+from torch.utils.data import Subset
+import numpy as np
+
 from safe_rlhf.configs.constants import PROMPT_ASSISTANT
 
 
@@ -290,3 +294,35 @@ def split_prompt_response(
         return prompt + partition, response
 
     return tuple(map(list, zip(*map(split_fn, texts))))
+
+
+def stratified_train_test_split(
+    dataset,
+    test_ratio: float = 0.1,
+    seed: int = 42,
+    key: str = "safe",
+) -> Tuple[Subset, Subset]:
+    """
+    Return two Subsets so that the fraction of items with dataset[i][key]==True
+    is (almost) identical in both splits.
+    """
+    rng = np.random.default_rng(seed)
+
+    # --- 1. collect indices for each stratum -------------------------------
+    idx_true  = [i for i, sample in enumerate(dataset) if sample[key]]
+    idx_false = [i for i, sample in enumerate(dataset) if not sample[key]]
+
+    def _split(idxs):
+        n_test = int(round(len(idxs) * test_ratio))
+        perm   = rng.permutation(idxs)
+        return perm[n_test:], perm[:n_test]          # train, test
+
+    # --- 2. split each stratum independently -------------------------------
+    train_true,  test_true  = _split(idx_true)
+    train_false, test_false = _split(idx_false)
+
+    # --- 3. merge the strata & wrap as Subset ------------------------------
+    train_idx = np.concatenate([train_true, train_false])
+    test_idx  = np.concatenate([test_true,  test_false])
+
+    return Subset(dataset, train_idx), Subset(dataset, test_idx)

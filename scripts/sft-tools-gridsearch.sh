@@ -2,7 +2,7 @@
 
 
 for dataset in "tools"; do
-  for important_sft in  false true; do
+  for important_sft in  true; do
     for safety_ratio_tol in 180; do
       # Activate the "pda" conda environment for the bash script
       source ~/miniconda3/etc/profile.d/conda.sh

@@ -34,13 +34,13 @@ timestamp="$(date +%Y%m%d-%H%M%S)"
 unset HOSTFILE
 ZERO_STAGE=0
 OFFLOAD="none"
-SAFE_SFT=False
+ALGO="external"  # Options: external, dual, penalty, erm
 # GRIDSEARCH PARAMS
 SAFETY_RATIO_TOL=10
 RESILIENT_COEFF=1
 LEARNING_RATE=1e-4
 NUM_SAFETY_SAMPLES="100"
-EPOCHS=6
+EPOCHS=4
 while [[ "$#" -gt 0 ]]; do
 	arg="$1"
 	shift
@@ -108,12 +108,12 @@ while [[ "$#" -gt 0 ]]; do
 		--epochs=*)
 			EPOCHS="${arg#*=}"
 			;;
-		--safe_sft)
-			SAFE_SFT="$1"
+		--algo)
+			ALGO="$1"
 			shift
 			;;
-		--safe_sft=*)
-			SAFE_SFT="${arg#*=}"
+		--algo=*)
+			ALGO="${arg#*=}"
 			;;
 		--num_safety_samples)
 			NUM_SAFETY_SAMPLES="$1"
@@ -129,7 +129,7 @@ while [[ "$#" -gt 0 ]]; do
 	esac
 done
 
-OUTPUT_DIR="${ROOT_DIR}/output/sft-safe/${NUM_SAFETY_SAMPLES}/run-${SAFE_SFT}-${NUM_SAFETY_SAMPLES}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
+OUTPUT_DIR="${ROOT_DIR}/output/sft-safe/${NUM_SAFETY_SAMPLES}/run-${ALGO}-${EPOCHS}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" &>/dev/null && pwd)"
 if [[ ! -f "${OUTPUT_DIR}/.gitignore" ]]; then
@@ -175,9 +175,10 @@ echo "--------------------------------------------"
 CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--module safe_rlhf.algorithms.safe_ft \
 	--train_datasets "SAFE-ALPACA/${NUM_SAFETY_SAMPLES}" \
+	--eval_split_ratio 0.1 \
 	--model_name_or_path "${MODEL_NAME_OR_PATH}" \
 	--cache_dir "${ROOT_DIR}/cache/sft-${NUM_SAFETY_SAMPLES}" \
-	--safe_sft "${SAFE_SFT}"	 \
+	--algorithm "${ALGO}"	 \
 	--max_length 1024 \
 	--trust_remote_code True \
 	--epochs "${EPOCHS}"  \
@@ -191,8 +192,10 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--weight_decay 0.0 \
 	--seed 42 \
 	--output_dir "${OUTPUT_DIR}" \
+	--recompute_baseline \
 	--log_type wandb \
-	--log_project SAFE-SFT-v3 \
+	--log_project SAFE-SFT-v4 \
+	--log_run_name "s:${NUM_SAFETY_SAMPLES}-c:${ALGO}-e:${EPOCHS}-tol:${SAFETY_RATIO_TOL}-${timestamp}" \
 	--zero_stage "${ZERO_STAGE}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \
@@ -200,6 +203,6 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--lora_r "4" \
 	--lora_alpha "16" \
 	--lora_dropout "0.05" \
-	--bf16 False \
-	--fp16 True \
+	--bf16 True \
+	--fp16 False \
 	--tf32 True

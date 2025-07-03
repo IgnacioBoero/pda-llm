@@ -67,22 +67,31 @@ class SupervisedSafeTrainer(TrainerBase):
         dist.barrier()
         self.init_datasets()
         dist.barrier()
+
+        self.init_engines()
+        dist.barrier()
+    
+        self.init_duals()
+        dist.barrier()
+        
         print("calculating baseline ...")
         if dist.get_rank() == 0:
             self.init_baseline()
         else:
-            self.baseline_logprobs = torch.zeros(
-                (len(self.train_dataloader.dataset)),
-                dtype=self.model.dtype,
-            )
-            self.baseline_logprobs = to_device(self.baseline_logprobs, self.args.device)
+            self.baseline_logprobs_train = torch.zeros((len(self.train_dataloader.dataset)),dtype=self.model.module.dtype,)
+            self.baseline_logprobs_eval = torch.zeros((len(self.eval_dataloader.dataset)),dtype=self.model.module.dtype,)
+            self.baseline_logprobs_train = to_device(self.baseline_logprobs_train, self.args.device)
+            self.baseline_logprobs_eval = to_device(self.baseline_logprobs_eval, self.args.device)
         dist.broadcast(
-            self.baseline_logprobs,
+            self.baseline_logprobs_train,
+            src=0,
+        )
+        dist.broadcast(
+            self.baseline_logprobs_eval,
             src=0,
         )
 
-        self.init_engines()
-        dist.barrier()
+
         self.init_logger()
 
     def init_models(self) -> None:
@@ -123,29 +132,32 @@ class SupervisedSafeTrainer(TrainerBase):
         train_dataset = self.DATASET_TYPE(
             self.args.train_datasets,
             tokenizer=self.tokenizer,
+            lazy_tokenization=False,
         )
+        
+        if self.args.need_eval:
+            if self.args.eval_datasets is None and self.args.eval_split_ratio is not None:
+                train_dataset, eval_dataset = train_dataset.split_train_test(
+                    self.args.eval_split_ratio,
+                    seed=42,
+                    stratify_key="safe"
+                )
+            elif self.args.eval_datasets is not None and self.args.eval_split_ratio is None:
+                eval_dataset = self.DATASET_TYPE(
+                    self.args.eval_datasets,
+                    tokenizer=self.tokenizer,
+                )
+            else:
+                raise ValueError('Either `eval_datasets` or `eval_split_ratio` should be provided.')
 
-        # if self.args.need_eval:
-        #     if self.args.eval_datasets is None and self.args.eval_split_ratio is not None:
-        #         train_dataset, eval_dataset = train_dataset.split_train_test(
-        #             split_ratio=self.args.eval_split_ratio,
-        #         )
-        #     elif self.args.eval_datasets is not None and self.args.eval_split_ratio is None:
-        #         eval_dataset = self.DATASET_TYPE(
-        #             self.args.eval_datasets,
-        #             tokenizer=self.tokenizer,
-        #         )
-        #     else:
-        #         raise ValueError('Either `eval_datasets` or `eval_split_ratio` should be provided.')
-
-        #     self.eval_dataloader = DataLoader(
-        #         eval_dataset,
-        #         collate_fn=eval_dataset.get_collator(),
-        #         sampler=DistributedSampler(eval_dataset, shuffle=True),
-        #         batch_size=self.args.per_device_eval_batch_size,
-        #     )
-        # else:
-        #     self.eval_dataloader = None
+            self.eval_dataloader = DataLoader(
+                eval_dataset,
+                collate_fn=eval_dataset.get_collator(),
+                sampler=DistributedSampler(eval_dataset, shuffle=True),
+                batch_size=self.args.per_device_eval_batch_size,
+            )
+        else:
+            self.eval_dataloader = None
         
         self.train_dataloader = DataLoader(
             train_dataset,
@@ -157,66 +169,90 @@ class SupervisedSafeTrainer(TrainerBase):
     def init_baseline(self) -> None:
         """Initialize baseline log probabilities with caching functionality."""
 
-        os.makedirs(self.args.cache_dir, exist_ok=True)
-        baseline_cache_path = os.path.join(self.args.cache_dir, "cached_baseline_logprobs.pt")
-        if os.path.exists(baseline_cache_path) and not self.args.recompute_baseline:
-            print(f"Loading cached baseline logprobs from {baseline_cache_path}")
-            self.baseline_logprobs = torch.load(baseline_cache_path, map_location=self.args.device)
-            print("Loaded cached baseline logprobs successfully")
-        else:
+        # os.makedirs(self.args.cache_dir, exist_ok=True)
+        # baseline_cache_path = os.path.join(self.args.cache_dir, "cached_baseline_logprobs.pt")
+        # if os.path.exists(baseline_cache_path) and not self.args.recompute_baseline:
+        #     print(f"Loading cached baseline logprobs from {baseline_cache_path}")
+        #     self.baseline_logprobs = torch.load(baseline_cache_path, map_location=self.args.device)
+        #     print("Loaded cached baseline logprobs successfully")
+        # else:
             # Assert only one process is computing baseline logprobs
-            if dist.is_initialized() and dist.get_rank() != 0:
-                print("Only one process should compute baseline logprobs.")
-                dist.barrier()
-                return
-            print("Computing baseline logprobs...")
+        if dist.is_initialized() and dist.get_rank() != 0:
+            print("Only one process should compute baseline logprobs.")
+            dist.barrier()
+            return
+        print("Computing baseline logprobs...")
 
-            baseline_dataloader = DataLoader(
-                self.train_dataloader.dataset,
-                collate_fn=self.train_dataloader.dataset.get_collator(),
-                batch_size=4,
-            )
+        self.baseline_logprobs_train = torch.zeros(
+            (len(self.train_dataloader.dataset)),
+            dtype=self.model.module.dtype,
+        )
+        self.baseline_logprobs_eval = torch.zeros(
+            (len(self.eval_dataloader.dataset)),
+            dtype=self.model.module.dtype,
+        )
+        self.baseline_logprobs_train = to_device(self.baseline_logprobs_train, self.args.device)
+        self.baseline_logprobs_eval = to_device(self.baseline_logprobs_eval, self.args.device)
 
-            self.baseline_logprobs = torch.zeros(
-                (len(baseline_dataloader.dataset)),
-                dtype=self.model.dtype,
-            )
-            self.baseline_logprobs = to_device(self.baseline_logprobs, self.args.device)
+        # reference_model, _ = load_pretrained_models(
+        #     self.args.model_name_or_path,
+        #     model_max_length=self.args.max_length,
+        #     padding_side='right',
+        #     auto_model_type=AutoModelForCausalLM,
+        #     trust_remote_code=self.args.trust_remote_code,
+        # )
+        # reference_model.requires_grad_(False)
+        # reference_model.eval()
+        # reference_model.to(self.args.device)
+        self.model.eval()
 
-            reference_model, _ = load_pretrained_models(
-                self.args.model_name_or_path,
-                model_max_length=self.args.max_length,
-                padding_side='right',
-                auto_model_type=AutoModelForCausalLM,
-                trust_remote_code=self.args.trust_remote_code,
-            )
-            reference_model.requires_grad_(False)
-            reference_model.eval()
-            reference_model.to(self.args.device)
-
-            with torch.no_grad():
-                for batch in tqdm(baseline_dataloader, desc='Computing baseline logprobs'):
-                    batch = to_device(batch, self.args.device)
-                    logprobs = (
-                        self.compute_log_probs(
-                            reference_model,
-                            batch["input_ids"],
-                            batch["attention_mask"],
-                        )
-                        * batch["attention_mask"][:, 1:]
-                        * batch["response_mask"][:, 1:]
+        train_dataloader_cache = DataLoader(
+            self.train_dataloader.dataset,
+            collate_fn=self.train_dataloader.collate_fn,
+            batch_size=1,
+        )
+                 
+        eval_dataloader_cache = DataLoader(
+            self.eval_dataloader.dataset,
+            collate_fn=self.eval_dataloader.collate_fn,
+            batch_size=1,
+        )
+        with torch.no_grad():
+            for batch in tqdm(train_dataloader_cache, desc='Computing baseline logprobs for train'):
+                batch = to_device(batch, self.args.device)
+                logprobs = (
+                    self.compute_log_probs(
+                        self.model.module,
+                        batch["input_ids"],
+                        batch["attention_mask"],
                     )
+                    * batch["attention_mask"][:, 1:]
+                    * batch["response_mask"][:, 1:]
+                )
 
-                    self.baseline_logprobs[batch['index']] = logprobs.sum(dim=1)
+                self.baseline_logprobs_train[batch['index']] = logprobs.sum(dim=1)
+                # if batch['safe']:
+                #     # Print index of safe samples
+                #     safe_indices = batch['index'][batch['safe'] == 1]
+                #     print(f"Safe indices: {safe_indices.tolist()}, logprobs: {self.baseline_logprobs_train[safe_indices].tolist()}")
 
-            # Save computed baseline logprobs
-            print(f"Saving computed baseline logprobs to {baseline_cache_path}")
-            torch.save(self.baseline_logprobs, baseline_cache_path)
-            print("Saved baseline logprobs successfully")
+   
+            for batch in tqdm(eval_dataloader_cache, desc='Computing baseline logprobs for eval'):
+                batch = to_device(batch, self.args.device)
+                logprobs = (
+                    self.compute_log_probs(
+                        self.model.module,
+                        batch["input_ids"],
+                        batch["attention_mask"],
+                    )
+                    * batch["attention_mask"][:, 1:]
+                    * batch["response_mask"][:, 1:]
+                )
 
-            # Free up memory
-            del reference_model
-            torch.cuda.empty_cache()
+                self.baseline_logprobs_eval[batch['index']] = logprobs.sum(dim=1)
+
+        # Free up memory
+        torch.cuda.empty_cache()
         return
 
     def init_engines(self) -> None:
@@ -265,6 +301,10 @@ class SupervisedSafeTrainer(TrainerBase):
 
         # if self.args.gradient_checkpointing:
         #     self.model.gradient_checkpointing_enable()
+    def init_duals(self) -> None:
+        """Initialize dual variables for safety constraints."""
+        num_samples = len(self.train_dataloader.dataset)
+        self.dual_vars = torch.zeros(num_samples, device=self.args.device, requires_grad=False)
 
     @abc.abstractmethod
     def loss(self, *args: Any, **kwargs: Any) -> dict[str, torch.Tensor]:
@@ -309,18 +349,18 @@ class SupervisedSafeTrainer(TrainerBase):
                 info['train/epoch'] = self.global_step / len(self.train_dataloader)
                 self.logger.log(info, step=self.global_step)
 
-                if self.global_step % self.args.save_interval == 0:
-                    self.logger.print(f'Saving checkpoint at step {self.global_step} ...')
-                    self.model.save_checkpoint(self.args.output_dir, tag=self.global_step)
-                    self.logger.print('Checkpoint saved.')
+                # if self.global_step % self.args.save_interval == 0:
+                #     self.logger.print(f'Saving checkpoint at step {self.global_step} ...')
+                #     self.model.save_checkpoint(self.args.output_dir, tag=self.global_step)
+                #     self.logger.print('Checkpoint saved.')
 
-                if (
-                    self.args.need_eval
-                    and self.args.eval_strategy == 'steps'
-                    and self.global_step % self.args.eval_interval == 0
-                ):
-                    self.logger.print(f'\n***** Evaluating at step {self.global_step} *****')
-                    self.logger.log(self.eval(), step=self.global_step)
+                # if (
+                #     self.args.need_eval
+                #     and self.args.eval_strategy == 'steps'
+                #     and self.global_step % self.args.eval_interval == 0
+                # ):
+                #     self.logger.print(f'\n***** Evaluating at step {self.global_step} *****')
+                #     self.logger.log(self.eval(), step=self.global_step)
 
             if self.args.need_eval and self.args.eval_strategy == 'epoch':
                 self.logger.print(
@@ -332,51 +372,113 @@ class SupervisedSafeTrainer(TrainerBase):
 
     def eval(self):
         safe_log_ratios = []
+        loss = []
         table = wandb.Table(columns=["data_index"] + ["value"])
         self.model.eval()
-        self.eval_dataloader = DataLoader(
-                    self.train_dataloader.dataset,
-                    collate_fn=self.train_dataloader.dataset.get_collator(),
-                    batch_size=1,
-                )
+
+
         with torch.no_grad():
             for batch in self.eval_dataloader:
-
+                batch = to_device(batch, self.args.device)
+                index = batch['index']
+                input_ids = batch['input_ids']
+                attention_mask = batch['attention_mask']
+                response_mask = batch['response_mask']
+                labels = batch['labels']
                 safe = batch['safe']
+                ref_log_probs = self.baseline_logprobs_eval[index]
+                loss_dict = self.loss(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    safe=0,
+                    ref_log_probs=ref_log_probs,
+                    response_mask=response_mask,
+                    index=index,
+                )
+                loss.append(loss_dict['loss'])
                 if safe:
-                    batch = to_device(batch, self.args.device)
-                    index = batch['index']
-                    input_ids = batch['input_ids']
-                    attention_mask = batch['attention_mask']
-                    ref_log_probs = self.baseline_logprobs[index]
-                    sequence_log_probs = self.compute_log_probs(  # size = (2 * B, L - 1)
-                        self.model.module,
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                    ) * attention_mask[:, 1:] * batch["response_mask"][:, 1:]
-
+                    sequence_log_probs = (
+                        self.compute_log_probs(
+                            self.model.module,
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                        )
+                        * attention_mask[:, 1:]
+                        * batch["response_mask"][:, 1:]
+                    )
                     log_ratio = sequence_log_probs.sum(dim=1) - ref_log_probs
                     safe_log_ratios.append(log_ratio)
-                    table.add_data(index, log_ratio)
-        safe_log_ratios = torch.cat(safe_log_ratios, dim=0)
-        # log all log ratios values as a table
-            
+                    table.add_data(index, log_ratio.cpu().to(torch.float16))
+        safe_log_ratios = torch.cat(safe_log_ratios, dim=0) if len(safe_log_ratios) > 0 else torch.tensor([0.0])
+
+        # Evaluate on train dataloader
+        train_safe_log_ratios = []
+        train_loss = []
+        train_table = wandb.Table(columns=["data_index"] + ["value"])
+        dual_var_table = wandb.Table(columns=["data_index"] + ["value"])
+
+        with torch.no_grad():
+            for batch in self.train_dataloader:
+                batch = to_device(batch, self.args.device)
+                index = batch['index']
+                input_ids = batch['input_ids']
+                attention_mask = batch['attention_mask']
+                response_mask = batch['response_mask']
+                labels = batch['labels']
+                safe = batch['safe']
+                ref_log_probs = self.baseline_logprobs_train[index]
+                loss_dict = self.loss(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    safe=0,
+                    ref_log_probs=ref_log_probs,
+                    response_mask=response_mask,
+                    index=index,
+                )
+                train_loss.append(loss_dict['loss'])
+                if safe:
+                    sequence_log_probs = (
+                        self.compute_log_probs(
+                            self.model.module,
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                        )
+                        * attention_mask[:, 1:]
+                        * batch["response_mask"][:, 1:]
+                    )
+                    log_ratio = sequence_log_probs.sum(dim=1) - ref_log_probs
+                    train_safe_log_ratios.append(log_ratio)
+                    train_table.add_data(index, log_ratio.cpu().to(torch.float16))
+                    dual_var_table.add_data(
+                        index,
+                        self.dual_vars[index].cpu().to(torch.float16),
+                    )
+                    # print(f"Safe indices: {index}, logprobs_saved: {ref_log_probs}, log_calc: { sequence_log_probs.sum(dim=1)}")
+
+        train_safe_log_ratios = torch.cat(train_safe_log_ratios, dim=0) if len(train_safe_log_ratios) > 0 else torch.tensor([0.0])
 
         return {
-            'eval/mean_safe_log_ratio': safe_log_ratios.mean().item(),
-            'eval/min_log_ratio': safe_log_ratios.min().item(),
-            'eval/max_log_ratio': safe_log_ratios.max().item(),
+            'eval/mean_safe_log_ratio': safe_log_ratios.mean().item() if len(safe_log_ratios) > 0 else 0.0,
+            'eval/min_log_ratio': safe_log_ratios.min().item() if len(safe_log_ratios) > 0 else 0.0,
+            'eval/max_log_ratio': safe_log_ratios.max().item() if len(safe_log_ratios) > 0 else 0.0,
             'eval/hist_log_ratio': wandb.Histogram(safe_log_ratios.cpu().to(torch.float16)),
-            'eval/table': table,    
+            'eval/table': table,
+            'eval/obj': torch.stack(loss).mean().item() if len(loss) > 0 else 0.0,
+            'train/mean_safe_log_ratio': train_safe_log_ratios.mean().item() if len(train_safe_log_ratios) > 0 else 0.0,
+            'train/min_log_ratio': train_safe_log_ratios.min().item() if len(train_safe_log_ratios) > 0 else 0.0,
+            'train/max_log_ratio': train_safe_log_ratios.max().item() if len(train_safe_log_ratios) > 0 else 0.0,
+            'train/hist_log_ratio': wandb.Histogram(train_safe_log_ratios.cpu().to(torch.float16)),
+            'train/table': train_table,
+            'train/obj': torch.stack(train_loss).mean().item() if len(train_loss) > 0 else 0.0,
+            'train/dual_vars': dual_var_table,
         }
 
     def set_train(self, mode: bool = True) -> None:
         """Set training mode for model."""
         if mode:
             self.model.train()
-            # if self.args.gradient_checkpointing:
-            #     self.model.gradient_checkpointing_enable()
         else:
             self.model.eval()
-            # if self.args.gradient_checkpointing:
-            #     self.model.gradient_checkpointing_disable()
+

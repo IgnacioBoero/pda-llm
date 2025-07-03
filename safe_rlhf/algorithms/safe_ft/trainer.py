@@ -71,6 +71,7 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
         safe: torch.LongTensor,  # size = (B)
         ref_log_probs: torch.Tensor,  # size = (B, L)
         response_mask: torch.BoolTensor,  # size = (B, L)
+        index: torch.Tensor,  # size = (B, L)
     ) -> dict[str, torch.Tensor]:
         """Loss function for the pdalignment algorithm.
 
@@ -89,18 +90,42 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
                 labels=labels,
             )
         loss = logs.loss
-        if self.args.safe_sft:
+        if self.args.algorithm == "erm":
+            pass
+        else:
             sequence_log_probs = gather_log_probabilities(
                         logs.logits[:, :-1], input_ids[:, 1:]
                     )
             log_probs = (sequence_log_probs * attention_mask[:, 1:] * response_mask[:,1:]).sum(dim=1)
             log_ratio = log_probs - ref_log_probs
-            loss_safety = (
-                self.args.resilient_coeff
-                / 2
-                * torch.clamp(-log_ratio + self.args.safety_ratio_tol, 0, None) ** 2
-            )  * safe
-            loss = loss + loss_safety.sum()
+            slack = -log_ratio + self.args.safety_ratio_tol
+            
+            if self.args.algorithm == "external":
+                loss_safety = (
+                    self.args.resilient_coeff
+                    / 2
+                    * torch.clamp(slack, 0, None) ** 2
+                )  * safe
+                loss = loss + loss_safety.sum()
+            elif self.args.algorithm == "dual":
+                # Update duals before computing the loss
+                self.update_duals(
+                    index=index,
+                    slack=slack,
+                    safe=safe,
+                )
+                batch_duals = self.dual_vars[index].detach()
+                loss_safety = (
+                    batch_duals
+                    * (slack)
+                ) * safe
+                loss = loss + loss_safety.sum()
+            elif self.args.algorithm == "penalty":
+                loss_safety = (
+                    self.args.resilient_coeff
+                    * (slack)
+                ) * safe
+                loss = loss + loss_safety.sum()
 
         # Total loss
         loss = loss.mean()
@@ -109,6 +134,12 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
             'loss': loss,
             'safe': safe,
         }
+
+    def update_duals(self,index,slack,safe):
+        self.dual_vars[index] = torch.clamp(
+            self.dual_vars[index] + (1 / self.args.resilient_coeff) * slack * safe,
+            min=0.0,
+        )
 
     def train_step(
         self,
@@ -132,7 +163,8 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
         Returns:
             dict[str, Any]: training loss, reward, learning rate
         """
-        batch_ref_sequence_log_probs = self.baseline_logprobs[index]
+        batch_ref_sequence_log_probs = self.baseline_logprobs_train[index]
+        
 
         loss_dict = self.loss(
             input_ids=input_ids,
@@ -141,6 +173,7 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
             safe=safe,
             ref_log_probs=batch_ref_sequence_log_probs,
             response_mask=response_mask,
+            index=index,
         )
         loss = loss_dict['loss']
         self.model.backward(loss)

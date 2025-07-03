@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
-for num_safety_samples in "100" "300" "2000"; do
-  bash ./sft-safe.sh  --safe_sft false --num_safety_samples "$num_safety_samples" --epochs 4
-done
 
-for num_safety_samples in "100"; do
-  for resilient_coeff in 1; do
-    for safety_ratio_tol in 50 100; do
-      bash ./sft-safe.sh  --safe_sft true --num_safety_samples "$num_safety_samples" --resilient_coeff "$resilient_coeff" --safety_ratio_tol "$safety_ratio_tol" 
-    done
-  done
-done
+GPU_IDS=(0 1)                        
 
-for num_safety_samples in "300"; do
-  for resilient_coeff in 1; do
-    for safety_ratio_tol in 100; do
-      bash ./sft-safe.sh  --safe_sft true --num_safety_samples "$num_safety_samples" --resilient_coeff "$resilient_coeff" --safety_ratio_tol "$safety_ratio_tol" 
+for GPU_ID in "${GPU_IDS[@]}"; do
+  sudo nvidia-smi -i "$GPU_ID" -c EXCLUSIVE_PROCESS
+done
+if [ -f ~/pda-llm/.env ]; then
+  set -a
+  source ~/pda-llm/.env
+  set +a
+fi
+
+echo "OPENAI_API_KEY: $OPENAI_API_KEY"
+
+for num_safety_samples in  "2000" "100"; do
+  for epochs in 4 6; do
+    for resilient_coeff in 1; do
+      for safety_ratio_tol in 100; do
+        for algo in  "external" "erm" "dual" "penalty"; do
+          bash ./sft-safe.sh  --algo  "$algo"  --num_safety_samples "$num_safety_samples" --resilient_coeff "$resilient_coeff" --safety_ratio_tol "$safety_ratio_tol" --epochs "$epochs"
+          python ~/pda-llm/safe_rlhf/evaluate/generate/eval.py --model ~/pda-llm/output/sft-safe/"${num_safety_samples}"/run-"${algo}"-"${epochs}"-"${resilient_coeff}"-"${safety_ratio_tol}"
+          lm_eval --model hf --model_args pretrained=~/pda-llm/output/sft-safe/"${num_safety_samples}"/run-"${algo}"-"${epochs}"-"${resilient_coeff}"-"${safety_ratio_tol}",backend=peft  --tasks openbookqa,piqa,boolq  --device cuda:0  --batch_size 8 --output_path ~/pda-llm/safe_rlhf/evaluate/generate/outputs/run-"${algo}"-"${epochs}"-"${resilient_coeff}"-"${safety_ratio_tol}"
+        done
+      done
     done
   done
 done

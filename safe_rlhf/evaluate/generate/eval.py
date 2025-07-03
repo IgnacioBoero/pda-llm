@@ -31,6 +31,11 @@ from safe_rlhf.utils import to_device
 from peft import AutoPeftModelForCausalLM
 
 import numpy as np
+import openai    
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent   
+
 
 def parse_arguments() -> argparse.Namespace:
     """Parse the command-line arguments."""
@@ -49,17 +54,11 @@ def parse_arguments() -> argparse.Namespace:
     # Input path
     parser.add_argument(
         '--problem_path',
-        type=str,
-        default='./data',
+        type=Path,
+        default= BASE_DIR / 'data',
         help='The path to the input file.',
     )
-    # # Logging
-    # parser.add_argument(
-    #     '--output_dir',
-    #     type=str,
-    #     default=None,
-    #     help='Where to store the eval output.',
-    # )
+
 
     return parser.parse_args()
 
@@ -100,69 +99,96 @@ def evaluate_harmfulness(
     return np.array(harmfulness_scores)
 
 
+
+def evaluate_openai_harm(
+    texts: list[str],
+    model: str = "omni-moderation-latest",
+    sleep_sec: float = 0.5,
+) -> np.ndarray:
+    
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key is None:
+        raise RuntimeError("Set the OPENAI_API_KEY environment variable first.")
+
+    client = openai.OpenAI(api_key=api_key)
+    harm_scores: list[float] = []
+
+    for txt in tqdm(texts, desc="OpenAI moderation"):
+        try:
+            resp = client.moderations.create(input=txt, model=model)
+            scores: dict[str, float] = resp.results[0].category_scores
+            scores_dict = scores.model_dump(exclude_none=True)   # → ordinary dict
+            harm_scores.append(max(scores_dict.values()))
+        except Exception as err:
+            # In case of failure, fall back to the most conservative score
+            print(f"[moderation-error] {err!r} — setting score to 1.0")
+            harm_scores.append(1.0)
+        time.sleep(sleep_sec)       # simple rate-limit buffer
+
+    return np.array(harm_scores)
+
+
 def main() -> None:
     """The main function."""
     args = parse_arguments()
 
-    # get files ending in json of args.problem_path
-    files = [os.path.join(args.problem_path, f) for f in os.listdir(args.problem_path) if f.endswith('.json')]
+    # list all .json problem files
+    files = [os.path.join(args.problem_path, f) 
+             for f in os.listdir(args.problem_path) if f.endswith('.json')]
+
     for file in files:
-
-        # Open file with instructions
-        with open(file, encoding='utf-8') as f:
+        with open(file, encoding="utf-8") as f:
             problems = json.load(f)
-        print(f'Generating answers for {file}')
+        print(f"Generating answers for {file}")
 
-        # Generate answers
-        answer = generate_answer(problems['instructions'], args.model)
-        print('Generating answers finished.')
-        results = {
-                'instructions': problems['instructions'],
-                'outputs': answer,
-            }
-        # # Save answers
-        # answer_out_dir = f'outputs/{args.model.split('/')[-1]}/answers/'
-        # if not os.path.exists(answer_out_dir):
-        #     os.makedirs(answer_out_dir)
-        # answer_output_file = file.split('/')[-1].split('.')[0]
-        # answer_output_file = os.path.join(answer_out_dir, f'{answer_output_file}_answers.json')
-        # with open(answer_output_file, mode='w', encoding='utf-8') as f:
-        #     json.dump(results, f, indent=4, ensure_ascii=False)
-        # print(f'Saved answers to {answer_out_dir}.')
+        # ---------- 1) GENERATE & SAVE IMMEDIATELY ----------
+        answer = generate_answer(problems["instructions"], args.model)
+        print("Generating answers finished.")
 
+        # build output path once so we can reuse it
+        result_out_dir = Path(BASE_DIR) / "outputs" / args.model.split("/")[-1]
+        result_out_dir.mkdir(parents=True, exist_ok=True)
+        result_output_file = result_out_dir / f"{Path(file).stem}_results.json"
 
-        # Evaluate harmfulness
-        print('Evaluating harmfulness...')
+        # save answers only
+        with open(result_output_file, "w", encoding="utf-8") as f_out:
+            json.dump(
+                {
+                    "instructions": problems["instructions"],
+                    "outputs": answer,
+                },
+                f_out,
+                indent=4,
+                ensure_ascii=False,
+            )
+        print(f"Saved answers to {result_output_file}.")
+
+        # ---------- 2) SCORE ----------
+        print("Evaluating harmfulness…")
         harmfulness_scores = evaluate_harmfulness(
-            problems['instructions'],
-            answer,
+            problems["instructions"], answer
         )
-        print('Evaluating harmfulness finished.')
-        # # Save harmfulness scores
-        # scores_out_dir = f'outputs/{args.model.split("/")[-1]}/scores/'
-        # if not os.path.exists(scores_out_dir):
-        #     os.makedirs(scores_out_dir)
-        # scores_output_file = file.split('/')[-1].split('.')[0]
-        # scores_output_file = os.path.join(scores_out_dir, f'{scores_output_file}_scores.npy')
-        # np.save(scores_output_file, harmfulness_scores)
-        # print(f'Saved harmfulness scores to {scores_output_file}.')
-        
-        dict_out = {
-            'mean_harmfulness_scores': np.mean(harmfulness_scores),
-            'instructions': problems['instructions'],
-            'outputs': answer,
-            'harmfulness_scores': harmfulness_scores.tolist(),
-        }
-        # Save results
-        result_out_dir = f'outputs/{args.model.split("/")[-1]}/'
-        if not os.path.exists(result_out_dir):
-            os.makedirs(result_out_dir)
-        result_output_file = file.split('/')[-1].split('.')[0]
-        result_output_file = os.path.join(result_out_dir, f'{result_output_file}_results.json')
-        with open(result_output_file, mode='w', encoding='utf-8') as f:
-            json.dump(dict_out, f, indent=4, ensure_ascii=False)
-        print(f'Saved results to {result_out_dir}.')
+        print("Evaluating harmfulness finished.")
 
+        print("Evaluating OpenAI harm…")
+        openai_harm_scores = evaluate_openai_harm(answer)
+        print("Evaluating OpenAI harm finished.")
+
+        # ---------- 3) RE-OPEN FILE & AUGMENT ----------
+        with open(result_output_file, "r+", encoding="utf-8") as f_out:
+            existing = json.load(f_out)
+            existing.update(
+                {
+                    "mean_harmfulness_scores": float(np.mean(harmfulness_scores)),
+                    "mean_openai_harm_score": float(np.mean(openai_harm_scores)),
+                    "harmfulness_scores": harmfulness_scores.tolist(),
+                    "openai_harm_scores": openai_harm_scores.tolist(),
+                }
+            )
+            f_out.seek(0)
+            json.dump(existing, f_out, indent=4, ensure_ascii=False)
+            f_out.truncate()
+        print(f"Augmented {result_output_file} with harm scores.\n")
 
 if __name__ == '__main__':
     main()

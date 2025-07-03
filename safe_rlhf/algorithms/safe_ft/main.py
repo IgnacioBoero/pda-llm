@@ -100,10 +100,11 @@ def parse_arguments() -> argparse.Namespace:
         help='The coefficient for the clipped safety  ration',
     )
     training_parser.add_argument(
-        '--safe_sft',
-        type=str2bool,
-        default=True,
-        help='The coefficient for the safety ratio.',
+        '--algorithm',
+        type=str,
+        required=True,
+        choices=['external', 'dual', 'penalty', 'erm'],
+        help='The algorithm to use for training.',
     )
     # Dual args
     training_parser.add_argument(
@@ -334,9 +335,11 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> None:
     """Main training routine."""
+    from datetime import timedelta
+    
     args = parse_arguments()
 
-    deepspeed.init_distributed()
+    deepspeed.init_distributed(timeout=timedelta(hours=3))
 
     args.global_rank = dist.get_rank()
     args.device = torch.device('cuda', args.local_rank)
