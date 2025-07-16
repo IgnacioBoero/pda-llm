@@ -396,7 +396,6 @@ class SupervisedSafeTrainer(TrainerBase):
                     response_mask=response_mask,
                     index=index,
                 )
-                loss.append(loss_dict['loss'])
                 if safe:
                     sequence_log_probs = (
                         self.compute_log_probs(
@@ -410,6 +409,9 @@ class SupervisedSafeTrainer(TrainerBase):
                     log_ratio = sequence_log_probs.sum(dim=1) - ref_log_probs
                     safe_log_ratios.append(log_ratio)
                     table.add_data(index, log_ratio.cpu().to(torch.float16))
+                else:
+                    loss.append(loss_dict['loss'])
+
         safe_log_ratios = torch.cat(safe_log_ratios, dim=0) if len(safe_log_ratios) > 0 else torch.tensor([0.0])
 
         # Evaluate on train dataloader
@@ -437,7 +439,7 @@ class SupervisedSafeTrainer(TrainerBase):
                     response_mask=response_mask,
                     index=index,
                 )
-                train_loss.append(loss_dict['loss'])
+                
                 if safe:
                     sequence_log_probs = (
                         self.compute_log_probs(
@@ -455,7 +457,8 @@ class SupervisedSafeTrainer(TrainerBase):
                         index,
                         self.dual_vars[index].cpu().to(torch.float16),
                     )
-                    # print(f"Safe indices: {index}, logprobs_saved: {ref_log_probs}, log_calc: { sequence_log_probs.sum(dim=1)}")
+                else:
+                    train_loss.append(loss_dict['loss'])
 
         train_safe_log_ratios = torch.cat(train_safe_log_ratios, dim=0) if len(train_safe_log_ratios) > 0 else torch.tensor([0.0])
 

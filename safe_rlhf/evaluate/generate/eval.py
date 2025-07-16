@@ -58,6 +58,14 @@ def parse_arguments() -> argparse.Namespace:
         default= BASE_DIR / 'data',
         help='The path to the input file.',
     )
+    
+    # Output path
+    parser.add_argument(
+        '--output_path',
+        type=Path,
+        default= BASE_DIR / 'outputs' / 'default',
+        help='The path to the output file.',
+    )
 
 
     return parser.parse_args()
@@ -146,7 +154,7 @@ def main() -> None:
         print("Generating answers finished.")
 
         # build output path once so we can reuse it
-        result_out_dir = Path(BASE_DIR) / "outputs" / args.model.split("/")[-1]
+        result_out_dir = args.output_path
         result_out_dir.mkdir(parents=True, exist_ok=True)
         result_output_file = result_out_dir / f"{Path(file).stem}_results.json"
 

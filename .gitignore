@@ -7,3 +7,5 @@ data/*
 safe_rlhf.egg-info/*
 safe_rlhf/evaluate/generate/outputs/*
 *.env
+safe_rlhf/evaluate/generate/wandb_download/*
+*.log

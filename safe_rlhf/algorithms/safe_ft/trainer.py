@@ -100,11 +100,18 @@ class SafeSFTTrainer(SupervisedSafeTrainer):
             log_ratio = log_probs - ref_log_probs
             slack = -log_ratio + self.args.safety_ratio_tol
             
-            if self.args.algorithm == "external":
+            if self.args.algorithm == "l2":
                 loss_safety = (
                     self.args.resilient_coeff
                     / 2
                     * torch.clamp(slack, 0, None) ** 2
+                )  * safe
+                loss = loss + loss_safety.sum()
+            elif self.args.algorithm == "l1":
+                loss_safety = (
+                    self.args.resilient_coeff
+                    / 2
+                    * torch.clamp(slack, 0, None)
                 )  * safe
                 loss = loss + loss_safety.sum()
             elif self.args.algorithm == "dual":

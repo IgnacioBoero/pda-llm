@@ -103,7 +103,7 @@ def parse_arguments() -> argparse.Namespace:
         '--algorithm',
         type=str,
         required=True,
-        choices=['external', 'dual', 'penalty', 'erm'],
+        choices=['l1','l2', 'dual', 'penalty', 'erm'],
         help='The algorithm to use for training.',
     )
     # Dual args

@@ -195,7 +195,7 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--recompute_baseline \
 	--log_type wandb \
 	--log_project SAFE-SFT-v4 \
-	--log_run_name "s:${NUM_SAFETY_SAMPLES}-c:${ALGO}-e:${EPOCHS}-tol:${SAFETY_RATIO_TOL}-${timestamp}" \
+	--log_run_name "s:${NUM_SAFETY_SAMPLES}-c:${ALGO}-e:${EPOCHS}-alpha:${RESILIENT_COEFF}-tol:${SAFETY_RATIO_TOL}-${timestamp}" \
 	--zero_stage "${ZERO_STAGE}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \
