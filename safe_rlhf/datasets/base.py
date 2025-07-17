@@ -100,6 +100,8 @@ class RawSample(TypedDict, total=False):
     """Other assistant answer text via resampling."""
     dialogue: NotRequired[list[str]]  # either `input` or `dialogue` should be provided
     """Dialogue history."""
+    context: NotRequired[str]
+    """Context text, e.g., system prompt or task description."""
 
     # Flags
     better: NotRequired[bool]

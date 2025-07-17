@@ -22,6 +22,20 @@ from torch.types import Number
 from safe_rlhf.configs import PROMPT_ASSISTANT, PROMPT_BEGIN, PROMPT_USER
 
 
+def format_boolq_prompt(
+    passage: str,
+    question: str,
+) -> str:
+    text = (
+        f"You are a helpful assistant. "
+        f"Read the passage and answer the question with Yes or No.\n\n"
+        f"Passage: {passage}\n"
+        f"Question: {question}\n"
+        f"Answer:"
+    )
+    return text
+    
+
 def format_prompt(
     input: str | list[str],  # pylint: disable=redefined-builtin
     eos_token: str,

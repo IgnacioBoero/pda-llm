@@ -43,7 +43,7 @@ from safe_rlhf.datasets.raw.safe_rlhf import (
 
 from safe_rlhf.datasets.raw.tools import ToolsDataset, ToolsDatasetOriginal 
 
-
+from safe_rlhf.datasets.raw.boolq import BoolQDataset, BoolQTrainDataset, BoolQValDataset
 __all__ = [
     'AlpacaDataset',
     'FireflyDataset',
@@ -66,4 +66,7 @@ __all__ = [
     'SafeAlpaca2000Dataset',
     'ToolsDataset',
     'ToolsDatasetOriginal',
+    'BoolQDataset',
+    'BoolQTrainDataset',
+    'BoolQValDataset',
 ]

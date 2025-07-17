@@ -68,6 +68,13 @@ from safe_rlhf.datasets.supervised_tools import (
     SupervisedToolsSample,
 )
 
+from safe_rlhf.datasets.supervised_boolq import (
+    SupervisedBoolQBatch,
+    SupervisedBoolQCollator,
+    SupervisedBoolQDataset,
+    SupervisedBoolQSample,
+)
+
 __all__ = [
     'DummyDataset',
     'parse_dataset',
@@ -99,6 +106,10 @@ __all__ = [
     'SupervisedToolsCollator',
     'SupervisedToolsSample',
     'SupervisedToolsBatch',
+    'SupervisedBoolQDataset',
+    'SupervisedBoolQCollator',
+    'SupervisedBoolQSample',
+    'SupervisedBoolQBatch',
     *raw.__all__,
 ]
 
