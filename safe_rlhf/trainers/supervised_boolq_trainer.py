@@ -65,18 +65,19 @@ class SupervisedBoolQTrainer(TrainerBase):
 
         self.init_models()
         dist.barrier()
+        print("Models initialized.")
         self.init_datasets()
         dist.barrier()
-
+        print("Datasets initialized.")
         self.init_engines()
         dist.barrier()
-    
+        print("Engines initialized.")
         self.init_duals()
         dist.barrier()
-
-
+        print("Dual variables initialized.")
         self.init_logger()
-
+        print("Logger initialized.")
+        
     def init_models(self) -> None:
         """Initialize model and tokenizer."""
         if self.ds_config is not None and self.ds_config['zero_optimization']['stage'] == 3:
@@ -156,11 +157,11 @@ class SupervisedBoolQTrainer(TrainerBase):
             len(self.train_dataloader) + self.args.gradient_accumulation_steps - 1
         ) // self.args.gradient_accumulation_steps
         self.args.total_training_steps = self.args.epochs * self.args.num_update_steps_per_epoch
-
         optimizer_grouped_parameters = get_optimizer_grouped_parameters(
             self.model,
             self.args.weight_decay,
         )
+
         if (
             self.ds_config['zero_optimization'].get('offload_optimizer', {}).get('device', 'none')
             != 'none'
@@ -176,7 +177,6 @@ class SupervisedBoolQTrainer(TrainerBase):
                 lr=self.args.lr,
                 betas=ADAM_BETAS,
             )
-
         num_warmup_steps = int(self.args.lr_warmup_ratio * self.args.total_training_steps)
         lr_scheduler = get_scheduler(
             name=self.args.lr_scheduler_type,
@@ -184,7 +184,6 @@ class SupervisedBoolQTrainer(TrainerBase):
             num_warmup_steps=num_warmup_steps,
             num_training_steps=self.args.total_training_steps,
         )
-
         self.model, *_ = deepspeed.initialize(
             model=self.model,
             optimizer=optimizer,
@@ -193,9 +192,9 @@ class SupervisedBoolQTrainer(TrainerBase):
             lr_scheduler=lr_scheduler,
             dist_init_required=True,
         )
-
         # if self.args.gradient_checkpointing:
         #     self.model.gradient_checkpointing_enable()
+        
     def init_duals(self) -> None:
         """Initialize dual variables for safety constraints."""
         num_samples = len(self.train_dataloader.dataset)
@@ -279,7 +278,6 @@ class SupervisedBoolQTrainer(TrainerBase):
                     is_true=is_true,
                 )
                 loss.append(loss_dict['objective'])
-
                 constraint_slack = loss_dict['constraint_value']
                 constraint_slacks.append(constraint_slack)
                 table.add_data(index, constraint_slack.cpu().to(torch.float16))

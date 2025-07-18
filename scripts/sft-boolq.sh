@@ -121,7 +121,7 @@ while [[ "$#" -gt 0 ]]; do
 	esac
 done
 
-OUTPUT_DIR="${ROOT_DIR}/output/sft-boolqq/run-${ALGO}-${EPOCHS}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
+OUTPUT_DIR="${ROOT_DIR}/output/sft-boolq/run-${ALGO}-${EPOCHS}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" &>/dev/null && pwd)"
 if [[ ! -f "${OUTPUT_DIR}/.gitignore" ]]; then
@@ -170,7 +170,7 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--eval_datasets "boolq/val" \
 	--model_name_or_path "${MODEL_NAME_OR_PATH}" \
 	--algorithm "${ALGO}"	 \
-	--max_length 1024 \
+	--max_length 2048 \
 	--trust_remote_code True \
 	--epochs "${EPOCHS}"  \
 	--per_device_train_batch_size 1 \
@@ -185,7 +185,7 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--output_dir "${OUTPUT_DIR}" \
 	--recompute_baseline \
 	--log_type wandb \
-	--log_project BOOLQ-SFT-v1 \
+	--log_project BOOLQ-SFT-v2 \
 	--log_run_name "c:${ALGO}-e:${EPOCHS}-alpha:${RESILIENT_COEFF}-tol:${SAFETY_RATIO_TOL}-${timestamp}" \
 	--zero_stage "${ZERO_STAGE}" \
 	--offload "${OFFLOAD}" \
