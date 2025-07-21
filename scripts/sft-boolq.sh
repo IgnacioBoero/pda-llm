@@ -121,7 +121,7 @@ while [[ "$#" -gt 0 ]]; do
 	esac
 done
 
-OUTPUT_DIR="${ROOT_DIR}/output/sft-boolq/run-${ALGO}-${EPOCHS}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
+OUTPUT_DIR="${ROOT_DIR}/output/sft-boolq/${MODEL_NAME_OR_PATH//\//_}/run-${ALGO}-${EPOCHS}-${RESILIENT_COEFF}-${SAFETY_RATIO_TOL}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" &>/dev/null && pwd)"
 if [[ ! -f "${OUTPUT_DIR}/.gitignore" ]]; then
@@ -185,14 +185,14 @@ CUDA_VISIBLE_DEVICES=0,1 deepspeed "${DEEPSPEED_ARGS[@]}" \
 	--output_dir "${OUTPUT_DIR}" \
 	--recompute_baseline \
 	--log_type wandb \
-	--log_project BOOLQ-SFT-v2 \
-	--log_run_name "c:${ALGO}-e:${EPOCHS}-alpha:${RESILIENT_COEFF}-tol:${SAFETY_RATIO_TOL}-${timestamp}" \
+	--log_project BOOLQ-SFT-v3 \
+	--log_run_name "m:${MODEL_NAME_OR_PATH}c:${ALGO}-e:${EPOCHS}-alpha:${RESILIENT_COEFF}-tol:${SAFETY_RATIO_TOL}-${timestamp}" \
 	--zero_stage "${ZERO_STAGE}" \
 	--offload "${OFFLOAD}" \
 	--safety_ratio_tol "${SAFETY_RATIO_TOL}" \
 	--resilient_coeff "${RESILIENT_COEFF}" \
-	--lora_r "4" \
-	--lora_alpha "16" \
+	--lora_r "16" \
+	--lora_alpha "32" \
 	--lora_dropout "0.05" \
 	--bf16 False \
 	--fp16 True \

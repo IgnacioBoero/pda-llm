@@ -38,7 +38,7 @@ class BoolQDataset(RawDataset):
 
     def __getitem__(self, index: int) -> RawSample:
         data = self.data[index]
-        answer = " Yes" if data["answer"] else " No"
+        answer = " yes" if data["answer"] else " no"
         input = data['question']
         context = data['passage']
         is_safe = data["answer"]

@@ -9,3 +9,5 @@ safe_rlhf/evaluate/generate/outputs/*
 *.env
 safe_rlhf/evaluate/generate/wandb_download/*
 *.log
+safe_rlhf/evaluate/boolq/outputs/*
+safe_rlhf/evaluate/boolq/wandb_download/*

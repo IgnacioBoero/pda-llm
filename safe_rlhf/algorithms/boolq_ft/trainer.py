@@ -70,8 +70,6 @@ class BoolQTrainer(SupervisedBoolQTrainer):
         labels: torch.LongTensor,  # size = (B, L)
         index: torch.Tensor,  # size = (B, L)
         is_true: torch.Tensor,  # size = (B, L)
-        Yes_token: int = 3869,  # Yes token id
-        No_token: int = 1939,  # No token id
     ) -> dict[str, torch.Tensor]:
         """Loss function for the pdalignment algorithm.
 
@@ -91,7 +89,7 @@ class BoolQTrainer(SupervisedBoolQTrainer):
             )
         objective = logs.loss
         log_probs = F.log_softmax(logs.logits[:,-3,:], dim=-1) # -3 is the Yes/No token
-        label_token = torch.where(is_true,Yes_token,No_token).unsqueeze(-1)
+        label_token = torch.where(is_true,self.args.yes_token,self.args.no_token).unsqueeze(-1)
         log_probs = torch.gather(log_probs, 1, label_token).squeeze()
         slack =  self.args.safety_ratio_tol - log_probs
         

@@ -105,5 +105,5 @@ class SupervisedBoolQCollator(CollatorBase):
             'labels': labels,  # size = (B, L)
             'attention_mask': attention_mask,  # size = (B, L)
             'index': indexes,
-             'is_true': is_true,  # size = (B,)
+            'is_true': is_true,  # size = (B,)
         }

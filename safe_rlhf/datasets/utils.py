@@ -26,10 +26,15 @@ def format_boolq_prompt(
     passage: str,
     question: str,
 ) -> str:
+    # text = (
+    #     f"You are a helpful assistant. "
+    #     f"Read the passage and answer the question with Yes or No.\n\n"
+    #     f"Passage: {passage}\n"
+    #     f"Question: {question}\n"
+    #     f"Answer:"
+    # )
     text = (
-        f"You are a helpful assistant. "
-        f"Read the passage and answer the question with Yes or No.\n\n"
-        f"Passage: {passage}\n"
+        f"{passage}\n"
         f"Question: {question}\n"
         f"Answer:"
     )

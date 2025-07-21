@@ -110,7 +110,9 @@ class SupervisedBoolQTrainer(TrainerBase):
                 ],
             ),
         )
-
+        self.args.yes_token = self.tokenizer.encode(' yes', add_special_tokens=False)[-1]
+        self.args.no_token = self.tokenizer.encode(' no', add_special_tokens=False)[-1]
+        print(f"Using YES token: {self.args.yes_token}, NO token: {self.args.no_token}")
     def init_datasets(self) -> None:
         """Initialize training and evaluation datasets."""
         train_dataset = self.DATASET_TYPE(
@@ -130,6 +132,7 @@ class SupervisedBoolQTrainer(TrainerBase):
                 eval_dataset = self.DATASET_TYPE(
                     self.args.eval_datasets,
                     tokenizer=self.tokenizer,
+                    lazy_tokenization=False,
                 )
             else:
                 raise ValueError('Either `eval_datasets` or `eval_split_ratio` should be provided.')
@@ -233,7 +236,6 @@ class SupervisedBoolQTrainer(TrainerBase):
 
             for batch in self.train_dataloader:
                 info = self.train_step(**to_device(batch, self.args.device))
-                torch.cuda.empty_cache()
 
                 self.global_step += 1
                 progress_bar.set_description(
@@ -253,23 +255,144 @@ class SupervisedBoolQTrainer(TrainerBase):
 
             self.model.tput_timer.update_epoch_count()
 
-    def eval(self):
-        constraint_slacks = []
-        loss = []
-        table = wandb.Table(columns=["data_index"] + ["value"])
+    def eval(self) -> dict[str, Any]:
+
+        device = self.args.device
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+
+        def ddp_reduce_stats(flat_tensor: torch.Tensor):
+            """Return global (mean, min, max) over all ranks."""
+            if flat_tensor.numel() == 0:
+                # create neutral elements
+                local_sum = torch.zeros(1, device=device)
+                local_cnt = torch.zeros(1, device=device)
+                local_min = torch.tensor([float('inf')], device=device)
+                local_max = torch.tensor([float('-inf')], device=device)
+            else:
+                local_sum = torch.tensor([flat_tensor.sum()], device=device)
+                local_cnt = torch.tensor([flat_tensor.numel()], device=device)
+                local_min = torch.tensor([flat_tensor.min()], device=device)
+                local_max = torch.tensor([flat_tensor.max()], device=device)
+
+            dist.all_reduce(local_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(local_cnt, op=dist.ReduceOp.SUM)
+            dist.all_reduce(local_min, op=dist.ReduceOp.MIN)
+            dist.all_reduce(local_max, op=dist.ReduceOp.MAX)
+
+            if local_cnt.item() > 0:
+                mean = (local_sum / local_cnt).item()
+                gmin = local_min.item()
+                gmax = local_max.item()
+            else:
+                mean = gmin = gmax = 0.0
+            return mean, gmin, gmax
+
+        def ddp_mean(values: list[torch.Tensor]) -> float:
+            """Compute global mean over list of scalar tensors (each scalar) on all ranks."""
+            if len(values) == 0:
+                local_sum = torch.zeros(1, device=device)
+                local_cnt = torch.zeros(1, device=device)
+            else:
+                stacked = torch.stack([v.detach().float() for v in values])
+                local_sum = torch.tensor([stacked.sum()], device=device)
+                local_cnt = torch.tensor([stacked.numel()], device=device)
+            dist.all_reduce(local_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(local_cnt, op=dist.ReduceOp.SUM)
+            return (local_sum / local_cnt).item() if local_cnt.item() > 0 else 0.0
+        
+        def gather_rows_all(local_rows):
+            world_size = dist.get_world_size()
+            gathered = [None] * world_size
+            dist.all_gather_object(gathered, local_rows)
+            flat = []
+            for part in gathered:
+                if part:
+                    flat.extend(part)
+            return flat
+
+
         self.model.eval()
 
 
+        eval_rows: list[tuple[int, float]] = []
+        eval_constraint_vals: list[torch.Tensor] = []
+        eval_loss_vals: list[torch.Tensor] = []
+
+        if self.eval_dataloader is not None:
+            eval_pbar = tqdm(
+            total=len(self.eval_dataloader),
+            desc="Eval (eval split)",
+            disable=not is_main_process(),
+            leave=False,
+            )
+            with torch.no_grad():
+                for batch in self.eval_dataloader:
+                    batch = to_device(batch, device)
+                    index = batch['index']                 # shape (B,)
+                    input_ids = batch['input_ids']
+                    attention_mask = batch['attention_mask']
+                    labels = batch['labels']
+                    is_true = batch['is_true']
+
+                    loss_dict = self.loss(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        labels=labels,
+                        index=index,
+                        is_true=is_true,
+                    )
+
+                    obj = loss_dict['objective'].detach().float()
+                    constraint_slack = loss_dict['constraint_value'].detach().float()  # shape (B,) or scalar
+
+                    # Normalize to 1D vector of per-sample values
+                    constraint_slack_flat = constraint_slack.view(-1)
+                    # Add per-sample rows
+                    for i_val, c_val in zip(index.tolist(), constraint_slack_flat.tolist()):
+                        eval_rows.append((int(i_val), float(c_val)))
+
+                    eval_constraint_vals.append(constraint_slack_flat)
+                    eval_loss_vals.append(obj)
+                    if is_main_process():
+                        eval_pbar.set_postfix(
+                            obj=float(obj),
+                            last_slack=float(constraint_slack_flat.mean().item())
+                                if constraint_slack_flat.numel() > 0 else 0.0
+                        )
+                    eval_pbar.update(1)
+            if is_main_process():
+                eval_pbar.close()
+            if len(eval_constraint_vals) > 0:
+                eval_constraint_tensor = torch.cat(eval_constraint_vals, dim=0)
+            else:
+                eval_constraint_tensor = torch.zeros(0, device=device)
+        else:
+            # No eval dataloader
+            eval_constraint_tensor = torch.zeros(0, device=device)
+
+        # ---------------------------
+        # TRAIN SPLIT (for monitoring)
+        # ---------------------------
+        train_rows: list[tuple[int, float]] = []
+        dual_rows: list[tuple[int, float]] = []
+        train_constraint_vals: list[torch.Tensor] = []
+        train_loss_vals: list[torch.Tensor] = []
+        train_pbar = tqdm(
+            total=len(self.train_dataloader),
+            desc="Eval (train split)",
+            disable=not is_main_process(),
+            leave=False,
+        )
         with torch.no_grad():
-            for batch in self.eval_dataloader:
-                batch = to_device(batch, self.args.device)
+            for batch in self.train_dataloader:
+                batch = to_device(batch, device)
                 index = batch['index']
                 input_ids = batch['input_ids']
                 attention_mask = batch['attention_mask']
                 labels = batch['labels']
                 is_true = batch['is_true']
 
-
                 loss_dict = self.loss(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -277,62 +400,96 @@ class SupervisedBoolQTrainer(TrainerBase):
                     index=index,
                     is_true=is_true,
                 )
-                loss.append(loss_dict['objective'])
-                constraint_slack = loss_dict['constraint_value']
-                constraint_slacks.append(constraint_slack)
-                table.add_data(index, constraint_slack.cpu().to(torch.float16))
-        constraint_slacks = torch.stack(constraint_slacks, dim=0) if len(constraint_slacks) > 0 else torch.tensor([0.0])
 
-        # Evaluate on train dataloader
-        train_constraint_slacks = []
-        train_loss = []
-        train_table = wandb.Table(columns=["data_index"] + ["value"])
-        dual_var_table = wandb.Table(columns=["data_index"] + ["value"])
+                obj = loss_dict['objective'].detach().float()
+                c_slack = loss_dict['constraint_value'].detach().float()
+                c_slack_flat = c_slack.view(-1)
 
-        with torch.no_grad():
-            for batch in self.train_dataloader:
-                batch = to_device(batch, self.args.device)
-                index = batch['index']
-                input_ids = batch['input_ids']
-                attention_mask = batch['attention_mask']
-                labels = batch['labels']
+                for i_val, c_val in zip(index.tolist(), c_slack_flat.tolist()):
+                    train_rows.append((int(i_val), float(c_val)))
+                    # dual vars indexed by i_val
+                    dual_rows.append((int(i_val), float(self.dual_vars[i_val].item())))
 
+                train_constraint_vals.append(c_slack_flat)
+                train_loss_vals.append(obj)
+                if is_main_process():
+                    train_pbar.set_postfix(
+                        obj=float(obj),
+                        last_slack=float(c_slack_flat.mean().item())
+                            if c_slack_flat.numel() > 0 else 0.0
+                    )
+                train_pbar.update(1)
+        if is_main_process():
+            train_pbar.close()
+        if len(train_constraint_vals) > 0:
+            train_constraint_tensor = torch.cat(train_constraint_vals, dim=0)
+        else:
+            train_constraint_tensor = torch.zeros(0, device=device)
 
-                loss_dict = self.loss(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    index=index,
-                    is_true=is_true,
-                )
-                train_loss.append(loss_dict['objective'])
-                
-
-                train_constraint_slack = loss_dict['constraint_value']
-                train_constraint_slacks.append(train_constraint_slack)
-                train_table.add_data(index, train_constraint_slack.cpu().to(torch.float16))
-                dual_var_table.add_data(
-                    index,
-                    self.dual_vars[index].cpu().to(torch.float16),
-                )
-                
-        train_constraint_slacks = torch.stack(train_constraint_slacks, dim=0) if len(train_constraint_slacks) > 0 else torch.tensor([0.0])
-
-        return {
-            'eval/mean_constraint_slack': constraint_slacks.mean().item() if len(constraint_slacks) > 0 else 0.0,
-            'eval/min_constraint_slack': constraint_slacks.min().item() if len(constraint_slacks) > 0 else 0.0,
-            'eval/max_constraint_slack': constraint_slacks.max().item() if len(constraint_slacks) > 0 else 0.0,
-            'eval/hist_constraint_slack': wandb.Histogram(constraint_slacks.cpu().to(torch.float16)),
-            'eval/table': table,
-            'eval/obj': torch.stack(loss).mean().item() if len(loss) > 0 else 0.0,
-            'train/mean_constraint_slack': train_constraint_slacks.mean().item() if len(train_constraint_slacks) > 0 else 0.0,
-            'train/min_constraint_slack': train_constraint_slacks.min().item() if len(train_constraint_slacks) > 0 else 0.0,
-            'train/max_constraint_slack': train_constraint_slacks.max().item() if len(train_constraint_slacks) > 0 else 0.0,
-            'train/hist_constraint_slack': wandb.Histogram(train_constraint_slacks.cpu().to(torch.float16)),
-            'train/table': train_table,
-            'train/obj': torch.stack(train_loss).mean().item() if len(train_loss) > 0 else 0.0,
-            'train/dual_vars': dual_var_table,
+        # ---------------------------
+        # GLOBAL SCALARS
+        # ---------------------------
+        print(f"Eval split: {len(eval_rows)} rows, train split: {len(train_rows)} rows")
+        eval_mean, eval_min, eval_max = ddp_reduce_stats(eval_constraint_tensor)
+        print(f"Eval split: mean {eval_mean:.4f}, min {eval_min:.4f}, max {eval_max:.4f}")
+        train_mean, train_min, train_max = ddp_reduce_stats(train_constraint_tensor)
+        print(f"Train split: mean {train_mean:.4f}, min {train_min:.4f}, max {train_max:.4f}")
+        eval_obj_mean = ddp_mean(eval_loss_vals)
+        print(f"Eval split: objective mean {eval_obj_mean:.4f}")
+        train_obj_mean = ddp_mean(train_loss_vals)
+        print(f"Train split: objective mean {train_obj_mean:.4f}")
+        result: dict[str, Any] = {
+            'eval/mean_constraint_slack': eval_mean,
+            'eval/min_constraint_slack': eval_min,
+            'eval/max_constraint_slack': eval_max,
+            'train/mean_constraint_slack': train_mean,
+            'train/min_constraint_slack': train_min,
+            'train/max_constraint_slack': train_max,
+            'eval/obj': eval_obj_mean,
+            'train/obj': train_obj_mean,
         }
+
+
+        # ---- Gather per-rank rows on *all* ranks ----
+
+        if self.eval_dataloader is not None:
+            all_eval_rows  = gather_rows_all(eval_rows)
+        else:
+            all_eval_rows  = []
+        all_train_rows = gather_rows_all(train_rows)
+        all_dual_rows  = gather_rows_all(dual_rows)
+
+        # ---- Only rank 0 constructs W&B artifacts ----
+        if is_main_process():
+            all_eval_rows.sort(key=lambda x: x[0])
+            all_train_rows.sort(key=lambda x: x[0])
+            all_dual_rows.sort(key=lambda x: x[0])
+
+            if self.eval_dataloader is not None:
+                eval_table = wandb.Table(columns=["data_index", "value"])
+                for i, v in all_eval_rows:
+                    eval_table.add_data(i, v)
+                result['eval/table'] = eval_table
+                result['eval/hist_constraint_slack'] = (
+                    wandb.Histogram([v for _, v in all_eval_rows]) if all_eval_rows else None
+                )
+
+            train_table = wandb.Table(columns=["data_index", "value"])
+            for i, v in all_train_rows:
+                train_table.add_data(i, v)
+            result['train/table'] = train_table
+
+            dual_table = wandb.Table(columns=["data_index", "value"])
+            for i, v in all_dual_rows:
+                dual_table.add_data(i, v)
+            result['train/dual_vars'] = dual_table
+
+            result['train/hist_constraint_slack'] = (
+                wandb.Histogram([v for _, v in all_train_rows]) if all_train_rows else None
+            )
+        # Optional sync (not strictly necessary because all_gather already synchronizes)
+        dist.barrier()
+        return result
 
     def set_train(self, mode: bool = True) -> None:
         """Set training mode for model."""
