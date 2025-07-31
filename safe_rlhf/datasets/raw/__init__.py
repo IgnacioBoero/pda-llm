@@ -44,6 +44,8 @@ from safe_rlhf.datasets.raw.safe_rlhf import (
 from safe_rlhf.datasets.raw.tools import ToolsDataset, ToolsDatasetOriginal 
 
 from safe_rlhf.datasets.raw.boolq import BoolQDataset, BoolQTrainDataset, BoolQValDataset
+from safe_rlhf.datasets.raw.bias import BiasDataset, BiasTrainDataset, BiasValDataset
+
 __all__ = [
     'AlpacaDataset',
     'FireflyDataset',
@@ -69,4 +71,7 @@ __all__ = [
     'BoolQDataset',
     'BoolQTrainDataset',
     'BoolQValDataset',
+    'BiasDataset',
+    'BiasTrainDataset',
+    'BiasValDataset',
 ]

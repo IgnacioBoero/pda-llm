@@ -39,7 +39,7 @@ from safe_rlhf.trainers.base import TrainerBase
 from safe_rlhf.utils import get_optimizer_grouped_parameters, is_main_process, to_device
 
 
-class SupervisedBoolQTrainer(TrainerBase):
+class MaskedBiasTrainer(TrainerBase):
     """Trainer base class for supervised training.
 
     Abstract methods:
@@ -92,27 +92,27 @@ class SupervisedBoolQTrainer(TrainerBase):
             auto_model_kwargs=self.extra_model_kwargs,
             auto_tokenizer_kwargs=self.extra_tokenizer_kwargs,
         )
-        self.model = get_peft_model(
-            self.model,
-            LoraConfig(
-                r=self.args.lora_r,
-                lora_alpha=self.args.lora_alpha,
-                lora_dropout=self.args.lora_dropout,
-                target_modules=[
-                    "q_proj",
-                    "k_proj",
-                    "v_proj",
-                    "o_proj",
-                    "gate_proj",
-                    "down_proj",
-                    "up_proj",
-                    "lm_head",
-                ],
-            ),
-        )
-        self.args.yes_token = self.tokenizer.encode(' yes', add_special_tokens=False)[-1]
-        self.args.no_token = self.tokenizer.encode(' no', add_special_tokens=False)[-1]
-        print(f"Using YES token: {self.args.yes_token}, NO token: {self.args.no_token}")
+        # self.model = get_peft_model(
+        #     self.model,
+        #     LoraConfig(
+        #         r=self.args.lora_r,
+        #         lora_alpha=self.args.lora_alpha,
+        #         lora_dropout=self.args.lora_dropout,
+        #         target_modules=[
+        #             "q_proj",
+        #             "k_proj",
+        #             "v_proj",
+        #             "o_proj",
+        #             "gate_proj",
+        #             "down_proj",
+        #             "up_proj",
+        #             "lm_head",
+        #         ],
+        #     ),
+        # # )
+        # self.args.yes_token = self.tokenizer.encode(' yes', add_special_tokens=False)[-1]
+        # self.args.no_token = self.tokenizer.encode(' no', add_special_tokens=False)[-1]
+        # print(f"Using YES token: {self.args.yes_token}, NO token: {self.args.no_token}")
     
     def init_datasets(self) -> None:
         """Initialize training and evaluation datasets."""

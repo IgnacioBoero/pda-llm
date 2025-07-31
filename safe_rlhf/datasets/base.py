@@ -116,6 +116,7 @@ class RawSample(TypedDict, total=False):
     # Add Ons for Tools
     is_important: NotRequired[bool]
     system: NotRequired[str]
+    correct: NotRequired[str]
 
 
 class RawDataset(Dataset[RawSample]):

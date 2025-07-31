@@ -75,6 +75,13 @@ from safe_rlhf.datasets.supervised_boolq import (
     SupervisedBoolQSample,
 )
 
+from safe_rlhf.datasets.masked_bias import (
+    MaskedBiasBatch,
+    MaskedBiasCollator,
+    MaskedBiasDataset,
+    MaskedBiasSample,
+)
+
 __all__ = [
     'DummyDataset',
     'parse_dataset',
@@ -110,6 +117,10 @@ __all__ = [
     'SupervisedBoolQCollator',
     'SupervisedBoolQSample',
     'SupervisedBoolQBatch',
+    'MaskedBiasDataset',
+    'MaskedBiasCollator',
+    'MaskedBiasSample',
+    'MaskedBiasBatch',
     *raw.__all__,
 ]
 
